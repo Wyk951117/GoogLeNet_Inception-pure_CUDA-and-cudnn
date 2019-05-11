@@ -113,12 +113,12 @@ void SavePGMFile(const unsigned char *data, size_t width, size_t height, const c
 
 // Application parameters
 DEFINE_int32(gpu, 0, "The GPU ID to use");
-DEFINE_int32(iterations, 1000, "Number of iterations for training");
+DEFINE_int32(iterations, 2, "Number of iterations for training");
 DEFINE_int32(random_seed, -1, "Override random seed (default uses std::random_device)");
 DEFINE_int32(classify, -1, "Number of images to classify to compute error rate (default uses entire test set)");
 
 // Batch parameters
-DEFINE_uint64(batch_size, 64, "Batch size for training");
+DEFINE_uint64(batch_size, 32, "Batch size for training");
 
 // Filenames
 DEFINE_bool(pretrained, false, "Use the pretrained CUDNN model as input");
@@ -520,6 +520,11 @@ struct TrainingContext
                                             CUDNN_TENSOR_NCHW,
                                             CUDNN_DATA_FLOAT,
                                             m_batchSize, (conv1.out_channels + conv2.out_channels + conv3.out_channels + conv4.out_channels),
+                                            conv1.out_height, conv1.out_width));
+        checkCUDNN(cudnnSetTensor4dDescriptor(pool1Tensor,
+                                            CUDNN_TENSOR_NCHW,
+                                            CUDNN_DATA_FLOAT,
+                                            m_batchSize, conv1.out_channels,
                                             conv1.out_height, conv1.out_width));
         checkCUDNN(cudnnSetPooling2dDescriptor(poolDesc,
                                                CUDNN_POOLING_MAX,
@@ -1043,9 +1048,9 @@ int main(int argc, char **argv)
     // Create the LeNet network architecture (These numbers need to be configured)
     ConvBiasLayer conv1((int)channels, 16, 5, (int)width, (int)height, false);
     
-    ConvBiasLayer conv2(conv1.out_channels, 32, 1, conv1.out_width, conv1.out_height, true);
-    ConvBiasLayer conv3(conv1.out_channels, 32, 3, conv1.out_width, conv1.out_height, true);
-    ConvBiasLayer conv4(conv1.out_channels, 32, 5, conv1.out_width, conv1.out_height, true);
+    ConvBiasLayer conv2(conv1.out_channels, 16, 1, conv1.out_width, conv1.out_height, true);
+    ConvBiasLayer conv3(conv1.out_channels, 16, 3, conv1.out_width, conv1.out_height, true);
+    ConvBiasLayer conv4(conv1.out_channels, 16, 5, conv1.out_width, conv1.out_height, true);
     MaxPoolLayer pool1(2, 1);  // with the same number of channels as conv1.out_channels
 
     FullyConnectedLayer fc1(conv1.out_width * conv1.out_height * (32 * 3 + conv1.out_channels), 500);
@@ -1053,7 +1058,7 @@ int main(int argc, char **argv)
 
     // Initialize CUDNN/CUBLAS training context
     TrainingContext context(FLAGS_gpu, FLAGS_batch_size, conv1, conv2, conv3, conv4, pool1, fc1, fc2);
-    
+
     // Determine initial network structure
     bool bRet = true;
     if (FLAGS_pretrained)
@@ -1231,6 +1236,7 @@ int main(int argc, char **argv)
     {
         // Train
         int imageid = iter % (train_size / context.m_batchSize);
+        printf("%d\n", imageid);
 
         // Prepare current batch on device
         checkCudaErrors(cudaMemcpyAsync(d_data, &train_images_float[imageid * context.m_batchSize * width*height*channels],

@@ -70,7 +70,7 @@ set(generated_file_internal "/home/yw2227/5720_final/GoogLeNet_Inception-pure_CU
 set(generated_cubin_file_internal "/home/yw2227/5720_final/GoogLeNet_Inception-pure_CUDA-and-cudnn/cuDNN/build/CMakeFiles/traininception.dir//./traininception_generated_inception.cu.o.cubin.txt") # path
 
 set(CUDA_NVCC_EXECUTABLE "/usr/local/cuda-10.0/bin/nvcc") # path
-set(CUDA_NVCC_FLAGS -gencode;arch=compute_35,code=sm_35;-gencode;arch=compute_52,code=sm_52;-gencode;arch=compute_50,code=compute_50;-std=c++11;-O3;-DNDEBUG;-Xcompiler;-DNDEBUG ;; ) # list
+set(CUDA_NVCC_FLAGS -gencode;arch=compute_35,code=sm_35;-gencode;arch=compute_52,code=sm_52;-gencode;arch=compute_50,code=compute_50;-std=c++11;-O3;-DNDEBUG;-lineinfo;-Xcompiler;-DNDEBUG ;; ) # list
 # Build specific configuration flags
 set(CUDA_NVCC_FLAGS_DEBUG  ; )
 set(CUDA_NVCC_FLAGS_MINSIZEREL  ; )
