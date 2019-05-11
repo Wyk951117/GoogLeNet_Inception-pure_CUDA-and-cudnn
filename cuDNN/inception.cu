@@ -144,11 +144,12 @@ struct ConvBiasLayer
 {
     int in_channels, out_channels, kernel_size;
     int in_width, in_height, out_width, out_height;
+    bool padding;
 
     std::vector<float> pconv, pbias;
     
     ConvBiasLayer(int in_channels_, int out_channels_, int kernel_size_, 
-                  int in_w_, int in_h_, bool padding) : pconv(in_channels_ * kernel_size_ * kernel_size_ * out_channels_), 
+                  int in_w_, int in_h_, bool padding_) : pconv(in_channels_ * kernel_size_ * kernel_size_ * out_channels_), 
                   pbias(out_channels_)
     {
         in_channels = in_channels_;
@@ -164,6 +165,7 @@ struct ConvBiasLayer
         out_width = in_w_ - kernel_size_ + 1;
         out_height = in_h_ - kernel_size_ + 1;
         }
+        padding = padding_;
     }
 
     bool FromFile(const char *fileprefix)
@@ -663,7 +665,8 @@ struct TrainingContext
 
 
     
-    void ForwardPropagation(float* data, float* conv1, float* conv2, float* conv3, float* conv4, float* pool1, float* concat1, float* fc1, 
+    void ForwardPropagation(ConvBiasLayer& layer_conv1, ConvBiasLayer& layer_conv2, ConvBiasLayer& layer_conv3, ConvBiasLayer& layer_conv4, MaxPoolLayer& layer_pool1,
+                            float* data, float* conv1, float* conv2, float* conv3, float* conv4, float* pool1, float* concat1, float* fc1, 
                             float* fc1relu, float* fc2, float* result, float* pconv1, float* pconv1bias, float* pconv2, float* pconv2bias, float* pconv3, 
                             float* pconv3bias, float* pconv4, float* pconv4bias, float* pfc1, float* pfc1bias, float* pfc2, float* pfc2bias, void *workspace, float* onevec)
                             // might need num1~4 / maxNum / numPerBatch for this function in order to do concat
@@ -712,11 +715,12 @@ struct TrainingContext
 
         // need the value of num1-4 and maxNum
         // Concat layer
-        int num1 = conv2.out_channels * conv2.out_width * conv2.out_height;
-        int num2 = conv3.out_channels * conv3.out_width * conv3.out_height;
-        int num3 = conv4.out_channels * conv4.out_width * conv4.out_height;
-        int num4 = conv1.out_channels * conv1.out_width * conv1.out_height;  // compute the number of elements for pool1 with conv1
-        int maxNum = (conv1.out_channels + conv2.out_channels + conv3.out_channels + conv4.out_channels) * conv1.out_width * conv1.out_height;
+        int num1 = layer_conv2.out_channels * layer_conv2.out_width * layer_conv2.out_height * m_batchSize; // may need to consider batch size
+        int num2 = layer_conv3.out_channels * layer_conv3.out_width * layer_conv3.out_height * m_batchSize;
+        int num3 = layer_conv4.out_channels * layer_conv4.out_width * layer_conv4.out_height * m_batchSize;
+        int num4 = layer_conv1.out_channels * layer_conv1.out_width * layer_conv1.out_height * m_batchSize;  // compute the number of elements for pool1 with conv1
+        int maxNum = (layer_conv1.out_channels + layer_conv2.out_channels + layer_conv3.out_channels + layer_conv4.out_channels) * 
+                    layer_conv1.out_width * layer_conv1.out_height * m_batchSize;
 
         concat<<<RoundUp(m_batchSize, BW), BW>>>(conv2, conv3, conv4, pool1,
                         num1, num2, num3, num4, maxNum, concat1, m_batchSize);  // hopefully this will work
@@ -745,7 +749,7 @@ struct TrainingContext
                                           fc1Tensor, fc1, &beta, fc1Tensor, fc1relu));
         
         // FC2 layer
-        checkCUDNN(cublasSgemm(cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N,
+        checkCudaErrors(cublasSgemm(cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N,
                                 ref_fc2.outputs, m_batchSize, ref_fc2.inputs,
                                 &alpha, pfc2, ref_fc2.inputs, fc1relu, ref_fc2.inputs,
                                 &beta, fc2, ref_fc2.outputs));
@@ -814,10 +818,10 @@ struct TrainingContext
                             float* data, float* labels, float* conv1, float* conv2, float* conv3, float* conv4, float* pool1, float* concat1,
                             float* fc1, float* fc1relu, float* fc2, float* fc2smax, float* dloss_data, float* pconv1, float* pconv1bias,
                             float* pconv2, float* pconv2bias, float* pconv3, float* pconv3bias, float* pconv4, float* pconv4bias,
-                            float* pfc1, float* pfc1bias, ,float* pfc2, float* pfc2bias, float* gconv1, float* gconv1bias, float* gconv2, 
+                            float* pfc1, float* pfc1bias, float* pfc2, float* pfc2bias, float* gconv1, float* gconv1bias, float* gconv2, 
                             float* gconv2bias, float* dconv2, float* gconv3, float* gconv3bias, float* dconv3, float* gconv4, float* gconv4bias, 
                             float* dconv4, float* dpool1, float* gfc1, float* gfc1bias, float* dfc1, float* dfc1_1, float* dfc1_2, float* dfc1_3, float* dfc1_4,
-                            float* dfc1relu, float* gfc2, float* gfc2bias, float* dfc2, void* workspace, float* onevec, float* gconvSumbias, float* gconvSum)
+                            float* dfc1relu, float* gfc2, float* gfc2bias, float* dfc2, void* workspace, float* onevec, float* dconvSum)
     {    
         float alpha = 1.0f, beta = 0.0f;
 
@@ -853,7 +857,7 @@ struct TrainingContext
         // FC1 layer
         // Compute derivative with respect to weights: gfc1 = (pool2 * dfc1relu')
         checkCudaErrors(cublasSgemm(cublasHandle, CUBLAS_OP_N, CUBLAS_OP_T, ref_fc1.inputs, ref_fc1.outputs, m_batchSize,
-                                    &alpha, pool2, ref_fc1.inputs, dfc1relu, ref_fc1.outputs, &beta, gfc1, ref_fc1.inputs));
+                                    &alpha, gfc2, ref_fc1.inputs, dfc1relu, ref_fc1.outputs, &beta, gfc1, ref_fc1.inputs));
         // Compute derivative with respect to bias: gfc1bias = dfc1relu * 1_vec
         checkCudaErrors(cublasSgemv(cublasHandle, CUBLAS_OP_N, ref_fc1.outputs, m_batchSize,
                                     &alpha, dfc1relu, ref_fc1.outputs, onevec, 1, &beta, gfc1bias, 1));
@@ -862,11 +866,12 @@ struct TrainingContext
                                     &alpha, pfc1, ref_fc1.inputs, dfc1relu, ref_fc1.outputs, &beta, dfc1, ref_fc1.inputs));
 
         // decat process, need the value of num1-4 and maxNum, order: conv2, conv3, conv4, pool1
-        int num1 = conv2.out_channels * conv2.out_width * conv2.out_height;
-        int num2 = conv3.out_channels * conv3.out_width * conv3.out_height;
-        int num3 = conv4.out_channels * conv4.out_width * conv4.out_height;
-        int num4 = conv1.out_channels * conv1.out_width * conv1.out_height;  // compute the number of elements for pool1 with conv1
-        int maxNum = (conv1.out_channels + conv2.out_channels + conv3.out_channels + conv4.out_channels) * conv1.out_width * conv1.out_height;
+        int num1 = layer_conv2.out_channels * layer_conv2.out_width * layer_conv2.out_height * m_batchSize;
+        int num2 = layer_conv3.out_channels * layer_conv3.out_width * layer_conv3.out_height * m_batchSize;
+        int num3 = layer_conv4.out_channels * layer_conv4.out_width * layer_conv4.out_height * m_batchSize;
+        int num4 = layer_conv1.out_channels * layer_conv1.out_width * layer_conv1.out_height * m_batchSize;  // compute the number of elements for pool1 with conv1
+        int maxNum = (layer_conv1.out_channels + layer_conv2.out_channels + layer_conv3.out_channels + layer_conv4.out_channels) 
+                    * layer_conv1.out_width * layer_conv1.out_height * m_batchSize;
 
         decat<<<RoundUp(m_batchSize, BW), BW>>>(dfc1_1, dfc1_2, dfc1_3, dfc1_4, num1, num2, num3, num4, maxNum,
                         dfc1, m_batchSize);  // hopefully this will work
@@ -916,16 +921,17 @@ struct TrainingContext
                                                 pconv4, conv4Tensor, dfc1_3, conv4Desc,
                                                 conv4bwdalgo, workspace, m_workspaceSize,
                                                 &beta, conv1Tensor, dconv4));
-        
-        sumGrad<<<RoundUp(m_batchSize, BW), BW>>>(gconv2bias, gconv3bias, gconv4bias, dpool1, gconvSumbias);
-        sumGrad<<<RoundUp(m_batchSize, BW), BW>>>(gconv2, gconv3, gconv4, dpool1, gconvSum);
+    
+        int dconvNum = layer_conv1.out_channels * layer_conv1.out_width * layer_conv1.out_height * m_batchSize;
+                        
+        sumGrad<<<RoundUp(m_batchSize, BW), BW>>>(dconv2, dconv3, dconv4, dpool1, dconvSum, dconvNum);
         
         // Conv1 layer
         checkCUDNN(cudnnConvolutionBackwardBias(cudnnHandle, &alpha, conv1Tensor,
-                                                gconvSumbias, &beta, conv1BiasTensor, gconv1bias));
+                                                dconvSum, &beta, conv1BiasTensor, gconv1bias));
         
         checkCUDNN(cudnnConvolutionBackwardFilter(cudnnHandle, &alpha, dataTensor,
-                                                  data, conv1Tensor, gconvsum, conv1Desc,
+                                                  data, conv1Tensor, dconvSum, conv1Desc,
                                                   conv1bwfalgo, workspace, m_workspaceSize,
                                                   &beta, conv1filterDesc, gconv1));
 
@@ -933,7 +939,7 @@ struct TrainingContext
     }
 
     void UpdateWeights(float learning_rate,
-                       ConvBiasLayer& conv1, ConvBiasLayer& conv2,
+                       ConvBiasLayer& conv1, ConvBiasLayer& conv2, ConvBiasLayer& conv3, ConvBiasLayer& conv4,
                        float *pconv1, float *pconv1bias, float* pconv2, float* pconv2bias,
                        float *pconv3, float *pconv3bias, float* pconv4, float* pconv4bias,
                        float *pfc1, float *pfc1bias, float *pfc2, float *pfc2bias,
@@ -1040,7 +1046,7 @@ int main(int argc, char **argv)
     ConvBiasLayer conv2(conv1.out_channels, 32, 1, conv1.out_width, conv1.out_height, true);
     ConvBiasLayer conv3(conv1.out_channels, 32, 3, conv1.out_width, conv1.out_height, true);
     ConvBiasLayer conv4(conv1.out_channels, 32, 5, conv1.out_width, conv1.out_height, true);
-    MaxPoolLayer pool1(3, 1);  // with the same number of channels as conv1.out_channels
+    MaxPoolLayer pool1(2, 1);  // with the same number of channels as conv1.out_channels
 
     FullyConnectedLayer fc1(conv1.out_width * conv1.out_height * (32 * 3 + conv1.out_channels), 500);
     FullyConnectedLayer fc2(fc1.outputs, 10);
@@ -1162,8 +1168,10 @@ int main(int argc, char **argv)
     
     // Differentials w.r.t. data
     float *d_dpool1, *d_dconv2, *d_dconv3, *d_dconv4, *d_dfc1, *d_dfc11, *d_dfc12, *d_dfc13, *d_dfc14, *d_dfc1relu, *d_dfc2, *d_dfc2smax, *d_dlossdata;
+    float *d_dconvsum;
     //                         Buffer     | Element       | N                   | C                  | H                | W
     //--------------------------------------------------------------------------------------------------------------------------------------
+    checkCudaErrors(cudaMalloc(&d_dconvsum, sizeof(float) * context.m_batchSize * conv1.out_channels * conv1.out_height * conv1.out_width));    
     checkCudaErrors(cudaMalloc(&d_dpool1,   sizeof(float) * context.m_batchSize * conv1.out_channels * conv1.out_height * conv1.out_width));
     checkCudaErrors(cudaMalloc(&d_dconv2,   sizeof(float) * context.m_batchSize * conv1.out_channels * conv1.out_height * conv1.out_width));
     checkCudaErrors(cudaMalloc(&d_dconv3,   sizeof(float) * context.m_batchSize * conv1.out_channels * conv1.out_height * conv1.out_width));
@@ -1231,9 +1239,10 @@ int main(int argc, char **argv)
                                         sizeof(float) * context.m_batchSize, cudaMemcpyHostToDevice));
         
         // Forward propagation
-        context.ForwardPropagation(d_data, d_conv1, d_conv2, d_conv3, d_conv4, d_pool1, d_concat, d_fc1, d_fc1relu, d_fc2, d_fc2smax, 
-                                   d_pconv1, d_pconv1bias, d_pconv2, d_pconv2bias, d_pconv3, d_pconv3bias, d_pconv4, d_pconv4bias, 
-                                   d_pfc1, d_pfc1bias, d_pfc2, d_pfc2bias, d_cudnn_workspace, d_onevec);
+        context.ForwardPropagation(conv1, conv2, conv3, conv4, pool1,
+                                    d_data, d_conv1, d_conv2, d_conv3, d_conv4, d_pool1, d_concat, d_fc1, d_fc1relu, d_fc2, d_fc2smax, 
+                                    d_pconv1, d_pconv1bias, d_pconv2, d_pconv2bias, d_pconv3, d_pconv3bias, d_pconv4, d_pconv4bias, 
+                                    d_pfc1, d_pfc1bias, d_pfc2, d_pfc2bias, d_cudnn_workspace, d_onevec);
 
         // Backward propagation
         context.Backpropagation(conv1, conv2, conv3, conv4, pool1,
@@ -1241,22 +1250,13 @@ int main(int argc, char **argv)
                                 d_pconv1, d_pconv1bias, d_pconv2, d_pconv2bias, d_pconv3, d_pconv3bias, d_pconv4, d_pconv4bias, d_pfc1, d_pfc1bias, d_pfc2, 
                                 d_pfc2bias, d_gconv1, d_gconv1bias, d_gconv2, d_gconv2bias, d_dconv2, d_gconv3, d_gconv3bias, d_dconv3, d_gconv4, d_gconv4bias,
                                 d_dconv4, d_dpool1, d_gfc1, d_gfc1bias, d_dfc1, d_dfc11, d_dfc12, d_dfc13, d_dfc14, d_dfc1relu, d_gfc2, d_gfc2bias, d_dfc2, 
-                                d_cudnn_workspace, d_onevec);
+                                d_cudnn_workspace, d_onevec, d_dconvsum);
 
         // Compute learning rate
         float learningRate = static_cast<float>(FLAGS_learning_rate * pow((1.0 + FLAGS_lr_gamma * iter), (-FLAGS_lr_power)));
 
-
-        void UpdateWeights(float learning_rate,
-            ConvBiasLayer& conv1, ConvBiasLayer& conv2,
-            float *pconv1, float *pconv1bias, float* pconv2, float* pconv2bias,
-            float *pconv3, float *pconv3bias, float* pconv4, float* pconv4bias,
-            float *pfc1, float *pfc1bias, float *pfc2, float *pfc2bias,
-            float *gconv1, float *gconv1bias, float* gconv2, float* gconv2bias,
-            float *gconv3, float *gconv3bias, float* gconv4, float* gconv4bias,
-            float *gfc1, float *gfc1bias, float *gfc2, float *gfc2bias)
         // Update weights
-        context.UpdateWeights(learningRate, conv1, conv2,
+        context.UpdateWeights(learningRate, conv1, conv2, conv3, conv4,
                               d_pconv1, d_pconv1bias, d_pconv2, d_pconv2bias, d_pconv3, d_pconv3bias, d_pconv4, d_pconv4bias,
                               d_pfc1, d_pfc1bias, d_pfc2, d_pfc2bias, d_gconv1, d_gconv1bias, d_gconv2, d_gconv2bias, 
                               d_gconv3, d_gconv3bias, d_gconv4, d_gconv4bias, d_gfc1, d_gfc1bias, d_gfc2, d_gfc2bias);
@@ -1323,7 +1323,8 @@ int main(int argc, char **argv)
             checkCudaErrors(cudaMemcpyAsync(d_data, &data[0], sizeof(float) * width * height, cudaMemcpyHostToDevice));
             
             // Forward propagate test image
-            test_context.ForwardPropagation(d_data, d_conv1, d_conv2, d_conv3, d_conv4, d_pool1, d_concat, d_fc1, d_fc1relu, d_fc2, d_fc2smax, 
+            test_context.ForwardPropagation(conv1, conv2, conv3, conv4, pool1,
+                                            d_data, d_conv1, d_conv2, d_conv3, d_conv4, d_pool1, d_concat, d_fc1, d_fc1relu, d_fc2, d_fc2smax, 
                                             d_pconv1, d_pconv1bias, d_pconv2, d_pconv2bias, d_pconv3, d_pconv3bias, d_pconv4, d_pconv4bias, 
                                             d_pfc1, d_pfc1bias, d_pfc2, d_pfc2bias, d_cudnn_workspace, d_onevec);
 
