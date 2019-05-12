@@ -11,11 +11,11 @@ static mnist_data *train_set, *test_set;
 static unsigned int train_cnt, test_cnt;
 
 // Define layers of CNN
-static Layer 
-static Layer conv1 = Layer(5, 28, 24, 1, 8);
-static Layer conv2 = Layer(1, 24, 24, 8, 16);
-static Layer maxpool = Layer(1, 24, 24, 8, 16);
-static Layer FC = Layer(24, 24, 1, 16, 10)
+static Layer l_input = Layer(0, 0, 28, 0, 1);
+static Layer l_conv1 = Layer(5, 28, 24, 1, 8);
+static Layer l_conv2 = Layer(1, 24, 24, 8, 16);
+static Layer l_maxpool = Layer(1, 24, 24, 16, 16);
+static Layer l_FC = Layer(24, 24, 1, 16, 10)
 // static Layer l_input = Layer(0, 0, 28*28);
 // static Layer l_c1 = Layer(5*5, 6, 24*24*6);
 // static Layer l_s1 = Layer(4*4, 1, 6*6*6);
@@ -64,26 +64,35 @@ static double forward_pass(double data[28][28])
 	}
 
 	l_input.clear();
-	l_c1.clear();
-	l_s1.clear();
-	l_f.clear();
+	l_conv1.clear();
+	l_conv2.clear();
+	l_maxpool.clear();
+	l_FC.clear();
 
 	clock_t start, end;
 	start = clock();
 
 	l_input.setOutput((float *)input);
 	
-	fp_preact_c1<<<64, 64>>>((float (*)[28])l_input.output, (float (*)[24][24])l_c1.preact, (float (*)[5][5])l_c1.weight);
-	fp_bias_c1<<<64, 64>>>((float (*)[24][24])l_c1.preact, l_c1.bias);
-	apply_step_function<<<64, 64>>>(l_c1.preact, l_c1.output, l_c1.O);
+	// Conv1
+	fp_conv<<<64, 64>>>((l_conv1.preact, l_input.output, l_conv1.weight, l_conv1.kernel_size, 
+						l_conv1.in_size, l_conv1.out_size, l_conv1.in_channel, l_conv1.out_channel, false);
+	fp_bias_conv<<<64, 64>>>((l_conv1.preact, l_conv1.bias, l_conv1.out_size, l_conv1.out_channel);
+	apply_step_function<<<64, 64>>>(l_conv1.preact, l_conv1.output, l_conv1.out_size * l_conv1.out_size * l_conv1.out_channel);
 
-	fp_preact_s1<<<64, 64>>>((float (*)[24][24])l_c1.output, (float (*)[6][6])l_s1.preact, (float (*)[4][4])l_s1.weight);
-	fp_bias_s1<<<64, 64>>>((float (*)[6][6])l_s1.preact, l_s1.bias);
-	apply_step_function<<<64, 64>>>(l_s1.preact, l_s1.output, l_s1.O);
+	// Conv2
+	fp_conv<<<64, 64>>>((l_conv2.preact, l_conv1.output, l_conv2.weight, l_conv2.kernel_size, 
+			l_conv2.in_size, l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true);
+	fp_bias_conv<<<64, 64>>>((l_conv2.preact, l_conv2.bias, l_conv2.out_size, l_conv2.out_channel);
+	apply_step_function<<<64, 64>>>(l_conv2.preact, l_conv2.output, l_conv2.out_size * l_conv2.out_size * l_conv2.out_channel);
 
-	fp_preact_f<<<64, 64>>>((float (*)[6][6])l_s1.output, l_f.preact, (float (*)[6][6][6])l_f.weight);
-	fp_bias_f<<<64, 64>>>(l_f.preact, l_f.bias);
-	apply_step_function<<<64, 64>>>(l_f.preact, l_f.output, l_f.O);
+	// Maxpooling
+	fp_maxpool<<<64, 64>>>(l_maxpool.output, l_conv2.output, l_maxpool.kernel_size, l_maxpool.in_size, l_maxpool.out_size, l_maxpool.out_channel, true);
+
+	// FC
+	fp_preact_fc<<<64, 64>>>(l_maxpool.output, l_FC.preact, l_FC.weight, l_FC.in_size, l_FC.in_channel, l_FC.out_channel);
+	fp_bias_fc<<<64, 64>>>(l_FC.preact, l_FC.bias, l_FC.out_channel);
+	apply_step_function<<<64, 64>>>(l_FC.preact, l_FC.output, l_FC.out_size * l_FC.out_size * l_FC.out_channel);
 	
 	end = clock();
 	return ((double) (end - start)) / CLOCKS_PER_SEC;
@@ -93,26 +102,34 @@ static double forward_pass(double data[28][28])
 static double back_pass()
 {
 	clock_t start, end;
-
 	start = clock();
+	// FC
+	bp_weight_fc<<<64, 64>>>((l_FC.d_weight, l_FC.d_preact, l_maxpool.output, l_FC.in_size, l_FC.in_channel, l_FC.out_channel);
+	bp_bias_fc<<<64, 64>>>(l_FC.bias, l_FC.d_preact, l_FC.out_channel);
 
-	bp_weight_f<<<64, 64>>>((float (*)[6][6][6])l_f.d_weight, l_f.d_preact, (float (*)[6][6])l_s1.output);
-	bp_bias_f<<<64, 64>>>(l_f.bias, l_f.d_preact);
+	// Maxpooling
+	bp_maxpool<<<64, 64>>>(l_maxpool.d_preact, l_maxpool.output, l_conv2.output, l_maxpool.kernel_size, l_maxpool.in_size, l_maxpool.out_size, true);
 
-	bp_output_s1<<<64, 64>>>((float (*)[6][6])l_s1.d_output, (float (*)[6][6][6])l_f.weight, l_f.d_preact);
-	bp_preact_s1<<<64, 64>>>((float (*)[6][6])l_s1.d_preact, (float (*)[6][6])l_s1.d_output, (float (*)[6][6])l_s1.preact);
-	bp_weight_s1<<<64, 64>>>((float (*)[4][4])l_s1.d_weight, (float (*)[6][6])l_s1.d_preact, (float (*)[24][24])l_c1.output);
-	bp_bias_s1<<<64, 64>>>(l_s1.bias, (float (*)[6][6])l_s1.d_preact);
+	// Conv2
+	bp_output_conv<<<64, 64>>>(l_conv2.d_output, l_maxpool.weight, l_maxpool.d_preact, l_conv2.in_size, l_conv2.out_size, 
+								l_maxpool.kernel_size, l_maxpool.out_size, l_maxpool.in_channel, l_maxpool.out_channel, true, true);
+	bp_preact_conv<<<64, 64>>>(l_conv2.d_preact, l_conv2.d_output, l_conv2.preact, l_conv2.out_size, l_conv2.out_channel);
+	bp_weight_conv<<<64, 64>>>(l_conv2.d_weight, l_conv2.d_preact, l_conv1.output, l_conv2.kernel_size, l_conv2.in_size,
+								l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true);
+	bp_bias_conv<<<64, 64>>>(l_conv2.bias, l_conv2.d_preact, l_conv2.out_size, l_conv2.out_channel);
 
-	bp_output_c1<<<64, 64>>>((float (*)[24][24])l_c1.d_output, (float (*)[4][4])l_s1.weight, (float (*)[6][6])l_s1.d_preact);
-	bp_preact_c1<<<64, 64>>>((float (*)[24][24])l_c1.d_preact, (float (*)[24][24])l_c1.d_output, (float (*)[24][24])l_c1.preact);
-	bp_weight_c1<<<64, 64>>>((float (*)[5][5])l_c1.d_weight, (float (*)[24][24])l_c1.d_preact, (float (*)[28])l_input.output);
-	bp_bias_c1<<<64, 64>>>(l_c1.bias, (float (*)[24][24])l_c1.d_preact);
+	// Conv1
+	bp_output_conv<<<64, 64>>>(l_conv1.d_output, l_conv2.weight, l_conv2.d_preact, l_conv1.in_size, l_conv1.out_size, 
+								l_conv2.kernel_size, l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true, true);
+	bp_preact_conv<<<64, 64>>>(l_conv1.d_preact, l_conv1.d_output, l_conv1.preact, l_conv1.out_size, l_conv1.out_channel);
+	bp_weight_conv<<<64, 64>>>(l_conv1.d_weight, l_conv1.d_preact, l_conv1.output, l_conv1.kernel_size, l_conv1.in_size,
+		l_conv1.out_size, l_conv1.in_channel, l_conv1.out_channel, false);
+	bp_bias_conv<<<64, 64>>>(l_conv1.bias, l_conv1.d_preact, l_conv1.out_size, l_conv1.out_channel);
 
 
-	apply_grad<<<64, 64>>>(l_f.weight, l_f.d_weight, l_f.M * l_f.N);
-	apply_grad<<<64, 64>>>(l_s1.weight, l_s1.d_weight, l_s1.M * l_s1.N);
-	apply_grad<<<64, 64>>>(l_c1.weight, l_c1.d_weight, l_c1.M * l_c1.N);
+	apply_grad<<<64, 64>>>(l_FC.weight, l_FC.d_weight, l_FC.M * l_FC.N);
+	apply_grad<<<64, 64>>>(l_conv1.weight, l_conv1.d_weight, l_conv1.M * l_conv1.N);
+	apply_grad<<<64, 64>>>(l_conv2.weight, l_conv2.d_weight, l_conv2.M * l_conv2.N);
 
 	end = clock();
 	return ((double) (end - start)) / CLOCKS_PER_SEC;
@@ -154,13 +171,14 @@ static void learn()
 
 			time_taken += forward_pass(train_set[i].data);
 
-			l_f.bp_clear();
-			l_s1.bp_clear();
-			l_c1.bp_clear();
+			l_FC.bp_clear();
+			l_maxpool.bp_clear();
+			l_conv2.bp_clear();
+			l_conv1.bp_clear();
 
 			// Euclid distance of train_set[i]
-			makeError<<<10, 1>>>(l_f.d_preact, l_f.output, train_set[i].label, 10);
-			cublasSnrm2(blas, 10, l_f.d_preact, 1, &tmp_err);
+			makeError<<<10, 1>>>(l_FC.d_preact, l_FC.output, train_set[i].label, 10);
+			cublasSnrm2(blas, 10, l_FC.d_preact, 1, &tmp_err);
 			err += tmp_err;
 
 			time_taken += back_pass();
