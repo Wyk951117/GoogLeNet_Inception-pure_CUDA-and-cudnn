@@ -69,7 +69,7 @@ void Layer::setOutput(float *data)
 void Layer::clear()
 {
 	cudaMemset(output, 0x00, sizeof(float) * O);
-	cudaMemset(preact, 0x00, sizeof(float) * O);
+	cudaMemset(preact, 0x00, sizeof(float) * O); 
 }
 
 void Layer::bp_clear()
@@ -156,6 +156,41 @@ __global__ void concat(float* output, float* input1, float* input2, float* input
 	}
 }
 
+/**name: decat
+ * function: inverse process of concat operation for backpropagation
+ * @param input        input of concat operation
+ * @param output1      first output of concat operation, the same for 2,3,4
+ * @param out_channel1 the number of channels of the first output
+ * @param size         the height and width of each channel (each feature map)
+ */
+
+ __global__ void decat(float* input, float* output1, float* output2, float* output3, float* output4,
+	const int size, const int out_channel1, const int out_channel2, const int out_channel3, const int out_channel4)
+{
+	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
+	const int in_channel = out_channel1 + out_channel2 + out_channel3 + out_channel4;  // # of channel of input
+	const int N = size * size;  // total elements per channel
+
+	if(pos < N){
+		for(int n = 0; n < in_channel; n++){
+			const int row = pos / size;
+			const int col = pos % size;
+			if(n < out_channel1){  // first output
+				output1[(n * size + col) * size + row] = input[(n * size + col) * size + row];
+			}
+			else if(n < out_channel1 + out_channel2){  // second output
+				output2[((n - out_channel1) * size + col) * size + row] = input[(n * size + col) * size + row];
+			}
+			else if(n < out_channel1 + out_channel2 + out_channel3){  // third output
+				output3[((n - out_channel1 - out_channel2) * size + col) * size + row] = input[(n * size + col) * size + row];
+			}
+			else{  // last output
+				output4[((n - out_channel1 - out_channel2 - out_channel3) * size + col) * size + row] = input[(n * size + col) * size + row];
+			}
+		}
+	}
+}
+
 /**name: fp_conv
  * function: convolution layer with padding without stride
  * @param output           output data matrix of convolution operation
@@ -172,13 +207,13 @@ __global__ void fp_conv(float* output, float* input, float* weight, const int ke
 						const int size, const int in_channel, const int out_channel, bool SAME)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
+	const int totalPos = blockDim.x * gridDim.x;
 	const int N = kernel_size * kernel_size * size * size * in_channel * out_channel;  // total number of connections in this convolution
 	const int weight_channel = in_channel * out_channel;  // actual number of channels of weight matrix
 	const int padding = (kernel_size - 1) / 2;  // number of padding for both ends
 
 	// distribute certain number of connections to each thread regardless of detailed position and shape
-	for(int n = N * pos / size; n < N * (pos+1) / size; n++){
+	for(int n = N * pos / totalPos; n < N * (pos+1) / totalPos; n++){
 		int idx = n;
 		const int i_kernel_row = ((idx /= 1	) % kernel_size);  
 		const int i_kernel_col = ((idx /= kernel_size	) % kernel_size);
@@ -319,15 +354,26 @@ __global__ void bp_bias_fc(float *bias, float *d_preact, const int n_channel)
 	}
 }
 
-
-__global__ void bp_output_conv(float d_output[6][24][24], float n_weight[1][4][4], float nd_preact[6][6][6])
+/**name: bp_output_conv
+ * function: backward pass for convolution layer, get the gradient of each element of output from the gradient of next layer
+ * @param d_output         gradient of output data matrix of convolution operation
+ * @param n_weight         weight matrix of next layer
+ * @param nd_preact        gradient of next layer
+ * @param kernel_size      the size of weight matrix
+ * @param n_size           the size of data matrix of next layer
+ * @param in_channel       the number of channels for input data matrix
+ * @param out_channel      the number of channels for output data matrix
+ * @Param SAME             boolean indicating whether "SAME" padding was used during forward pass
+ */
+__global__ void bp_output_conv(float d_output[6][24][24], float n_weight[1][4][4], float nd_preact[6][6][6],
+							const int kernel_size, const int n_size, const int in_channel, const int out_channel, bool SAME)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
+	const int totalPos = blockDim.x * gridDim.x;
 
 	const int N = 1*4*4*6*6*6;
 
-	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
+	for (int n = N * pos / totalPos; n < N * (pos+1) / totalPos; ++n) { 
 		int idx = n;
 		const int i1 = ((idx /= 1	) % 1);
 		const int i2 = ((idx /= 1	) % 4);
