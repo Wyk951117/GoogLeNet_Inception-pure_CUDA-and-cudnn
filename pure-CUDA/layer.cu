@@ -94,9 +94,9 @@ __device__ float step_function(float v)
 __global__ void apply_step_function(float *input, float *output, const int N)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
+	const int totalPos = blockDim.x * gridDim.x;
 
-	for (int idx = N * pos / size; idx < N * (pos+1) / size; ++idx) {
+	for (int idx = N * pos / totalPos; idx < N * (pos+1) / totalPos; ++idx) {
 		output[idx] = step_function(input[idx]);
 	}
 }
@@ -104,9 +104,9 @@ __global__ void apply_step_function(float *input, float *output, const int N)
 __global__ void calcLoss(float *err, float *output, unsigned int Y, const int N)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
+	const int totalPos = blockDim.x * gridDim.x;
 
-	for (int idx = N * pos / size; idx < N * (pos+1) / size; ++idx) { 
+	for (int idx = N * pos / totalPos; idx < N * (pos+1) / totalPos; ++idx) { 
 		err[idx] = ((Y == idx ? 1.0f : 0.0f) - output[idx]);
 	}
 }
@@ -114,9 +114,9 @@ __global__ void calcLoss(float *err, float *output, unsigned int Y, const int N)
 __global__ void apply_grad(float *output, float *grad, const int N)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
+	const int totalPos = blockDim.x * gridDim.x;
 
-	for (int idx = N * pos / size; idx < N * (pos+1) / size; ++idx) {
+	for (int idx = N * pos / totalPos; idx < N * (pos+1) / totalPos; ++idx) {
 		output[idx] += dt * grad[idx];
 	}
 }
@@ -248,17 +248,17 @@ __global__ void fp_conv(float* output, float* input, float* weight, const int ke
 __global__ void fp_bias_conv(float* preact, float* bias, const int size, const int n_channel)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
+	const int totalPos = blockDim.x * gridDim.x;
 
 	const int N = n_channel * size * size;
 
-	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
+	for (int n = N * pos / totalPos; n < N * (pos+1) / totalPos; ++n) {
 		int idx = n;
-		const int i1 = ((idx /= 1	) % n_channel);
-		const int i2 = ((idx /= n_channel	) % size);
-		const int i3 = ((idx /= size	) % size);
+		const int i_channel = ((idx /= 1	) % n_channel);
+		const int i_row = ((idx /= n_channel	) % size);
+		const int i_col = ((idx /= size	) % size);
 
-		preact[i1][i2][i3] += bias[i1];
+		preact[(i_channel * size + i_col) * size + i_row] += bias[i_channel];
 	}
 }
 
@@ -275,18 +275,18 @@ __global__ void fp_preact_fc(float* input, float* preact, float* weight,
 							const int size, const int in_channel, const int out_channel)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
+	const int totalPos = blockDim.x * gridDim.x;
 
+	const int weight_channel = in_channel * out_channel;
 	const int N = out_channel * in_channel * size * size;  // number of elements of weight matrix
 
-	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
+	for (int n = N * pos / totalPos; n < N * (pos+1) / totalPos; ++n) {
 		int idx = n;
-		const int i1 = ((idx /= 1	) % out_channel);
-		const int i2 = ((idx /= out_channel	) % in_channel);
-		const int i3 = ((idx /= in_channel	) % size);
-		const int i4 = ((idx /= size	) % size);
+		const int i_channel = ((idx /= 1	) % weight_channel);
+		const int i_row = ((idx /= weight_channel	) % size);
+		const int i_col = ((idx /= size	) % size);
 
-		atomicAdd(&preact[i1], weight[i1][i2][i3][i4] * input[i2][i3][i4]);
+		atomicAdd(&preact[i_channel % out_channel], weight[(i_channel * size + i_col) * size + i_row] * input[((i_channel % in_channel) * size + i_col) * size + i_row]);
 	}
 }
 
@@ -299,11 +299,11 @@ __global__ void fp_preact_fc(float* input, float* preact, float* weight,
 __global__ void fp_bias_fc(float *preact, float *bias, const int n_channel)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
+	const int totalPos = blockDim.x * gridDim.x;
 
 	const int N = n_channel;
 
-	for (int idx = N * pos / size; idx < N * (pos+1) / size; ++idx) {
+	for (int idx = N * pos / totalPos; idx < N * (pos+1) / totalPos; ++idx) {
 		preact[idx] += bias[idx];
 	}
 }
@@ -321,18 +321,18 @@ __global__ void bp_weight_fc(float *d_weight, float *d_preact, float *p_output,
 							const int size, const int in_channel, const int out_channel)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
+	const int totalPos = blockDim.x * gridDim.x;
 
 	const int N = out_channel * in_channel * size * size;
+	const int weight_channel = out_channel * in_channel;
 
-	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
+	for (int n = N * pos / totalPos; n < N * (pos+1) / totalPos; ++n) {
 		int idx = n;
-		const int i1 = ((idx /= 1	) % out_channel);
-		const int i2 = ((idx /= out_channel	) % in_channel);
-		const int i3 = ((idx /= in_channel	) % size);
-		const int i4 = ((idx /= size	) % size);
+		const int i_channel = ((idx /= 1	) % weight_channel);
+		const int i_row = ((idx /= weight_channel	) % size);
+		const int i_col = ((idx /= size	) % size);
 
-		d_weight[i1][i2][i3][i4] = d_preact[i1] * p_output[i2][i3][i4];
+		d_weight[(i_channel * size + i_col) * size + i_row] = d_preact[i_channel % out_channel] * p_output[((i_channel % in_channel) * size + i_col) * size + i_row];
 	}
 }
 
@@ -345,11 +345,11 @@ __global__ void bp_weight_fc(float *d_weight, float *d_preact, float *p_output,
 __global__ void bp_bias_fc(float *bias, float *d_preact, const int n_channel)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
+	const int totalPos = blockDim.x * gridDim.x;
 
 	const int N = n_channel;
 
-	for (int idx = N * pos / size; idx < N * (pos+1) / size; ++idx) {
+	for (int idx = N * pos / totalPos; idx < N * (pos+1) / totalPos; ++idx) {
 		bias[idx] += dt * d_preact[idx];  // update bias term
 	}
 }
@@ -363,7 +363,7 @@ __global__ void bp_bias_fc(float *bias, float *d_preact, const int n_channel)
  * @param n_size           the size of data matrix of next layer
  * @param in_channel       the number of channels for input data matrix
  * @param out_channel      the number of channels for output data matrix
- * @Param SAME             boolean indicating whether "SAME" padding was used during forward pass
+ * @Param SAME             boolean indicating whether "SAME" padding was used during forward pass 
  */
 __global__ void bp_output_conv(float d_output[6][24][24], float n_weight[1][4][4], float nd_preact[6][6][6],
 							const int kernel_size, const int n_size, const int in_channel, const int out_channel, bool SAME)
@@ -371,7 +371,7 @@ __global__ void bp_output_conv(float d_output[6][24][24], float n_weight[1][4][4
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int totalPos = blockDim.x * gridDim.x;
 
-	const int N = 1*4*4*6*6*6;
+	const int N = kernel_size * kernel_size * n_size * n_size * in_channel * out_channel;
 
 	for (int n = N * pos / totalPos; n < N * (pos+1) / totalPos; ++n) { 
 		int idx = n;
