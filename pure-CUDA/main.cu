@@ -11,10 +11,15 @@ static mnist_data *train_set, *test_set;
 static unsigned int train_cnt, test_cnt;
 
 // Define layers of CNN
-static Layer l_input = Layer(0, 0, 28*28);
-static Layer l_c1 = Layer(5*5, 6, 24*24*6);
-static Layer l_s1 = Layer(4*4, 1, 6*6*6);
-static Layer l_f = Layer(6*6*6, 10, 10);
+static Layer 
+static Layer conv1 = Layer(5, 28, 24, 1, 8);
+static Layer conv2 = Layer(1, 24, 24, 8, 16);
+static Layer maxpool = Layer(1, 24, 24, 8, 16);
+static Layer FC = Layer(24, 24, 1, 16, 10)
+// static Layer l_input = Layer(0, 0, 28*28);
+// static Layer l_c1 = Layer(5*5, 6, 24*24*6);
+// static Layer l_s1 = Layer(4*4, 1, 6*6*6);
+// static Layer l_f = Layer(6*6*6, 10, 10);
 
 static void learn();
 static unsigned int classify(double data[28][28]);
