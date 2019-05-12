@@ -42,6 +42,8 @@ __global__ void calcLoss(float *err, float *output, unsigned int Y, const int N)
 __global__ void apply_grad(float *output, float *grad, const int N);
 
 // Forward propagation kernels
+__global__ void concat(float* output, float* input1, float* input2, float* input3, float* input4,
+						const int size, const int in_channel1, const int in_channel2, const int in_channel3, const int in_channel4)
 __global__ void fp_preact_conv(float input[28][28], float preact[6][24][24], float weight[6][5][5]);
 __global__ void fp_bias_conv(float preact[6][24][24], float bias[6]);
 __global__ void fp_preact_strideConv(float input[6][24][24], float preact[6][6][6], float weight[1][4][4]);
