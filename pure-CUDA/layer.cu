@@ -10,13 +10,12 @@ Layer::Layer(int M, int N, int O)
 	this->N = N;
 	this->O = O;
 
-	float h_bias[N];
-	float h_weight[N][M];
+	float *h_bias, *h_weight;
+	// host memory allocation
+	h_bias = (float *)Malloc(sizeof(float) * N);
+	h_weight = (float *)Malloc(sizeof(float) * N * M);
 
-	output = NULL;
-	preact = NULL;
-	bias   = NULL;
-	weight = NULL;
+	float *output, *preact, *bias, *weight;
 
 	// initialize weights and bias
 	for (int i = 0; i < N; ++i) {
@@ -24,11 +23,11 @@ Layer::Layer(int M, int N, int O)
 		/*h_bias[i] = 0.0f;*/
 
 		for (int j = 0; j < M; ++j) {
-			h_weight[i][j] = 0.5f - float(rand()) / float(RAND_MAX);
+			h_weight[i * N + j] = 0.5f - float(rand()) / float(RAND_MAX);
 			/*h_weight[i][j] = 0.05f;*/
 		}
 	}
-
+	// device memory allocation
 	cudaMalloc(&output, sizeof(float) * O);
 	cudaMalloc(&preact, sizeof(float) * O);
 
@@ -80,15 +79,19 @@ void Layer::bp_clear()
 	cudaMemset(d_weight, 0x00, sizeof(float) * M * N);
 }
 
-
+/**name: step_function
+ * function: implement sigmoid step function as activation function
+ */
 __device__ float step_function(float v)
 {
 	return 1 / (1 + exp(-v));
 }
 
+/**name: apply_step_function
+ * function: apply step function to input matrices to produce output, N represents number of elements of both input and output
+ * @param N     total number of elements in both input and output
+ */
 __global__ void apply_step_function(float *input, float *output, const int N)
-// apply step function to input matrices to produce output, N represents number of
-// elements of both input and output
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int size = blockDim.x * gridDim.x;
@@ -103,7 +106,7 @@ __global__ void calcLoss(float *err, float *output, unsigned int Y, const int N)
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int size = blockDim.x * gridDim.x;
 
-	for (int idx = N * pos / size; idx < N * (pos+1) / size; ++idx) {
+	for (int idx = N * pos / size; idx < N * (pos+1) / size; ++idx) { 
 		err[idx] = ((Y == idx ? 1.0f : 0.0f) - output[idx]);
 	}
 }
@@ -118,37 +121,55 @@ __global__ void apply_grad(float *output, float *grad, const int N)
 	}
 }
 
-// name: concat
-// function: concatenate matrices together via channel direction
-__global__ void concat(float* output, float* input1, float* input2, float* input3,
-						const int size, const int in_channel1, const int in_channel2, const int in_channel3)
+/**name: concat
+ * function: concatenate matrices together via the direction of channels
+ * @param output       output of concat operation
+ * @param input1       first input of concat operation, the same for 2,3,4
+ * @param in_channel1  the number of channels of the first input
+ * @param size         the height and width of each channel (each feature map)
+ */
+
+__global__ void concat(float* output, float* input1, float* input2, float* input3, float* input4,
+						const int size, const int in_channel1, const int in_channel2, const int in_channel3, const int in_channel4)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int out_channel = in_channel1 + in_channel2 + in_channel3;  // # of channel for output
+	const int out_channel = in_channel1 + in_channel2 + in_channel3 + in_channel4;  // # of channel for output
 	const int N = size * size;  // total elements per channel
 
-	if(pos > N){
+	if(pos < N){
 		for(int n = 0; n < out_channel; n++){
 			const int row = pos / size;
 			const int col = pos % size;
 			if(n < in_channel1){  // first input
 				output[(n * size + col) * size + row] = input1[(n * size + col) * size + row];
 			}
-			else if(n < in_channel2){  // second input
+			else if(n < in_channel1 + in_channel2){  // second input
 				output[(n * size + col) * size + row] = input2[((n - in_channel1) * size + col) * size + row];
 			}
-			else{  // last input
+			else if(n < in_channel1 + in_channel2 + in_channel3){  // third input
 				output[(n * size + col) * size + row] = input3[((n - in_channel1 - in_channel2) * size + col) * size + row];
+			}
+			else{  // last input
+				output[(n * size + col) * size + row] = input4[((n - in_channel1 - in_channel2 - in_channel3) * size + col) * size + row];
 			}
 		}
 	}
 }
 
-// name: fp_conv
-// function: convolution layer with padding without stride
+/**name: fp_conv
+ * function: convolution layer with padding without stride
+ * @param output           output data matrix of convolution operation
+ * @param input            input data matrix of convolution operation
+ * @param weight           weight matrix of operation convolution
+ * @param kernel_size      the size of weight matrix
+ * @param size             the size of data matrix
+ * @param in_channel       the number of channels for input data matrix
+ * @param out_channel      the number of channels for output data matrix
+ * @param SAME          boolean decide whether use "SAME" padding for this convolution operation
+ */
 
-__global__ void fp_conv(float* output, float* input, float* weight, float* bias,
-						const int kernel_size, const int size, const int in_channel, const int out_channel)
+__global__ void fp_conv(float* output, float* input, float* weight, const int kernel_size, 
+						const int size, const int in_channel, const int out_channel, bool SAME)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int size = blockDim.x * gridDim.x;
@@ -166,9 +187,14 @@ __global__ void fp_conv(float* output, float* input, float* weight, float* bias,
 		const int i_col = ((idx /= size	) % size);
 
 		// corresponding position of the input matrix
-		const int input_row = i_kernel_row + i_row - padding;
-		const int input_col = i_kernel_col + i_col - padding;
-
+		if (SAME){ // SAME padding scheme implemented
+			const int input_row = i_kernel_row + i_row - padding;
+			const int input_col = i_kernel_col + i_col - padding;
+		}
+		else{
+			const int input_row = i_kernel_row + i_row;
+			const int input_col = i_kernel_col + i_col;
+		}
 		if(input_row >= 0 && input_col < size && input_col >=0 && input_col < size){
 			atomicAdd(output[((i_channel % out_channel) * size + i_col) * size + i_row], 
 						weight[(i_channel * kernel_size + i_kernel_col) * kernel_size + i_kernel_row] 
@@ -177,93 +203,53 @@ __global__ void fp_conv(float* output, float* input, float* weight, float* bias,
 	}
 }
 
-
-// __global__ void fp_preact_conv(float input[28][28], float preact[6][24][24], float weight[6][5][5])
-// {
-// 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-// 	const int size = blockDim.x * gridDim.x;
-
-// 	const int N = 5*5*6*24*24;
-
-// 	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
-// 		int idx = n;
-// 		const int i1 = ((idx /= 1	) % 5);
-// 		const int i2 = ((idx /= 5	) % 5);
-// 		const int i3 = ((idx /= 5	) % 6);
-// 		const int i4 = ((idx /= 6	) % 24);
-// 		const int i5 = ((idx /= 24	) % 24);
-
-// 		atomicAdd(&preact[i3][i4][i5], weight[i3][i1][i2] * input[i4 + i1][i5 + i2]);
-// 	}
-// }
-
-// __global__ void fp_bias_conv(float preact[6][24][24], float bias[6])
-// {
-// 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-// 	const int size = blockDim.x * gridDim.x;
-
-// 	const int N = 6*24*24;
-
-// 	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
-// 		int idx = n;
-// 		const int i1 = ((idx /= 1	) % 6);
-// 		const int i2 = ((idx /= 6	) % 24);
-// 		const int i3 = ((idx /= 24	) % 24);
-
-// 		preact[i1][i2][i3] += bias[i1];
-// 	}
-// }
-
-__global__ void fp_preact_strideConv(float input[6][24][24], float preact[6][6][6], float weight[1][4][4])
-// convlolution with strides
+/**name: fp_bias_conv
+ * function: add bias to matrix after convolution operation
+ * @param preact     input feature matrix after convolution
+ * @param bias       bias term for each channel
+ * @param size       size of input feature matrix (size * size)
+ * @param n_channel  number of channels of input feature matrix
+ */
+__global__ void fp_bias_conv(float* preact, float* bias, const int size, const int n_channel)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int size = blockDim.x * gridDim.x;
 
-	const int N = 4*4*6*6*6;
+	const int N = n_channel * size * size;
 
 	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
 		int idx = n;
-		const int i1 = ((idx /= 1	) % 4);
-		const int i2 = ((idx /= 4	) % 4);
-		const int i3 = ((idx /= 4	) % 6);
-		const int i4 = ((idx /= 6	) % 6);
-		const int i5 = ((idx /= 6	) % 6);
+		const int i1 = ((idx /= 1	) % n_channel);
+		const int i2 = ((idx /= n_channel	) % size);
+		const int i3 = ((idx /= size	) % size);
 
-		atomicAdd(&preact[i3][i4][i5], weight[0][i1][i2] * input[i3][i4 * 4 + i1][i5 * 4 + i2]);
+		preact[i1][i2][i3] += bias[i1];
 	}
 }
 
-__global__ void fp_bias_strideConv(float preact[6][6][6], float bias[1])
+/**name:fp_preact_fc
+ * function: matrix multiplication part for full connected layer
+ * @param input        input matrix
+ * @param preact       output matrix after FC
+ * @param weight       weight matrix needed to execute full connected operation
+ * @param size         size of input feature map of each channel
+ * @param in_channel   nubmer of channels of input feature matrix
+ * @param out_channel  number of channels of output feature matrix (1 * 1 * out_channel)
+ */
+__global__ void fp_preact_fc(float* input, float* preact, float* weight,
+							const int size, const int in_channel, const int out_channel)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int size = blockDim.x * gridDim.x;
 
-	const int N = 6*6*6;
+	const int N = out_channel * in_channel * size * size;  // number of elements of weight matrix
 
 	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
 		int idx = n;
-		const int i1 = ((idx /= 1	) % 6);
-		const int i2 = ((idx /= 6	) % 6);
-		const int i3 = ((idx /= 6	) % 6);
-
-		preact[i1][i2][i3] += bias[0];
-	}
-}
-
-__global__ void fp_preact_fc(float input[6][6][6], float preact[10], float weight[10][6][6][6])
-{
-	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
-
-	const int N = 10*6*6*6;
-
-	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
-		int idx = n;
-		const int i1 = ((idx /= 1	) % 10);
-		const int i2 = ((idx /= 10	) % 6);
-		const int i3 = ((idx /= 6	) % 6);
-		const int i4 = ((idx /= 6	) % 6);
+		const int i1 = ((idx /= 1	) % out_channel);
+		const int i2 = ((idx /= out_channel	) % in_channel);
+		const int i3 = ((idx /= in_channel	) % size);
+		const int i4 = ((idx /= size	) % size);
 
 		atomicAdd(&preact[i1], weight[i1][i2][i3][i4] * input[i2][i3][i4]);
 	}
