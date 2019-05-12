@@ -209,7 +209,7 @@ __global__ void fp_conv(float* output, float* input, float* weight, const int ke
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int totalPos = blockDim.x * gridDim.x;
-	const int N = kernel_size * kernel_size * size * size * in_channel * out_channel;  // total number of connections in this convolution
+	const int N = kernel_size * kernel_size * n_size * n_size * in_channel * out_channel;  // total number of connections in this convolution
 	const int weight_channel = in_channel * out_channel;  // actual number of channels of weight matrix
 	const int padding = (kernel_size - 1) / 2;  // number of padding for both ends
 
@@ -220,7 +220,7 @@ __global__ void fp_conv(float* output, float* input, float* weight, const int ke
 		const int i_kernel_col = ((idx /= kernel_size	) % kernel_size);
 		const int i_channel = ((idx /= kernel_size	) % weight_channel);
 		const int i_row = ((idx /= weight_channel	) % n_size);
-		const int i_col = ((idx /= size	) % n_size);
+		const int i_col = ((idx /= n_size	) % n_size);
 
 		// corresponding position of the input matrix and size of output matrix
 		if (SAME){ // SAME padding scheme implemented
@@ -454,7 +454,7 @@ __global__ void bp_weight_conv(float* d_weight, float* d_preact, float* p_output
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int totalPos = blockDim.x * gridDim.x;
-	const int N = kernel_size * kernel_size * size * size * in_channel * out_channel;  // total number of connections in this convolution
+	const int N = kernel_size * kernel_size * n_size * n_size * in_channel * out_channel;  // total number of connections in this convolution
 	const int weight_channel = in_channel * out_channel;  // actual number of channels of weight matrix
 	const int padding = (kernel_size - 1) / 2;  // number of padding for both ends
 
@@ -465,7 +465,7 @@ __global__ void bp_weight_conv(float* d_weight, float* d_preact, float* p_output
 		const int i_kernel_col = ((idx /= kernel_size	) % kernel_size);
 		const int i_channel = ((idx /= kernel_size	) % weight_channel);
 		const int i_row = ((idx /= weight_channel	) % n_size);
-		const int i_col = ((idx /= size	) % n_size);
+		const int i_col = ((idx /= n_size	) % n_size);
 
 		// corresponding position of the input matrix
 		if (SAME){ // SAME padding scheme implemented
@@ -517,7 +517,7 @@ __global__ void fp_maxpool(float *input, float* output, const int kernel_size,
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int totalPos = blockDim.x * gridDim.x;
-	const int N = kernel_size * kernel_size * size * size * in_channel * out_channel;  // total number of connections in this convolution
+	const int N = kernel_size * kernel_size * n_size * n_size * in_channel * out_channel;  // total number of connections in this convolution
 	const int weight_channel = in_channel * out_channel;  // actual number of channels of weight matrix
 	const int padding = (kernel_size - 1) / 2;  // number of padding for both ends
 
@@ -528,7 +528,7 @@ __global__ void fp_maxpool(float *input, float* output, const int kernel_size,
 		const int i_kernel_col = ((idx /= kernel_size	) % kernel_size);
 		const int i_channel = ((idx /= kernel_size	) % weight_channel);
 		const int i_row = ((idx /= weight_channel	) % n_size);
-		const int i_col = ((idx /= size	) % n_size);
+		const int i_col = ((idx /= n_size	) % n_size);
 
 		// corresponding position of the input matrix and size of output matrix
 		if (SAME){ // SAME padding scheme implemented
@@ -596,7 +596,7 @@ __global__ void bp_maxpool(float* d_preact, float* preact, float* p_output, cons
 		const int i_kernel_row = ((idx /= 1	) % kernel_size);  
 		const int i_kernel_col = ((idx /= kernel_size	) % kernel_size);
 		const int i_channel = ((idx /= kernel_size	) % in_channel);
-		const int i_row = ((idx /= weight_channel	) % n_size);
+		const int i_row = ((idx /= in_channel	) % n_size);
 		const int i_col = ((idx /= n_size	) % n_size);
     float maxidx = (float)-1;
     int idx = 0;
