@@ -1,2 +1,2 @@
-# GoogLeNet-Inception-CUDA-and-Tensorflow
-Final Project of Parallel Computing (ECE 5720). Implementing Inception GoogLeNet with both Tensorflow with Python and CUDA with C 
+# GoogLeNet_Inception-pure_CUDA-and-cudnn
+Final Project of Parallel Computing (ECE 5720). Implementing Inception GoogLeNet with both pure CUDA and cuDNN library.

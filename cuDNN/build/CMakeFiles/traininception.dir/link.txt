@@ -1,0 +1,1 @@
+/usr/bin/c++    -std=c++11    CMakeFiles/traininception.dir/readubyte.cpp.o CMakeFiles/traininception.dir/./traininception_generated_inception.cu.o  -o traininception  -L/lib64 -rdynamic /usr/local/cuda-10.0/lib64/libcudart.so /usr/local/cuda-10.0/lib64/libcublas.so -lcudnn -Wl,-rpath,/lib64:/usr/local/cuda-10.0/lib64 

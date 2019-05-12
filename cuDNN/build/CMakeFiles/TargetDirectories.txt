@@ -1,0 +1,1 @@
+/home/yw2227/5720_final/GoogLeNet_Inception-pure_CUDA-and-cudnn/cuDNN/build/CMakeFiles/traininception.dir
