@@ -255,123 +255,70 @@ __global__ void fp_preact_fc(float* input, float* preact, float* weight,
 	}
 }
 
-__global__ void fp_bias_fc(float preact[10], float bias[10])
+/**name:fp_bias_fc
+ * function: add bias term to each channel of FC output
+ * @param preact     feature matrix after FC
+ * @param bias       bias term for each channel
+ * @param n_channel  number of channels of feature matrix
+ */
+__global__ void fp_bias_fc(float *preact, float *bias, const int n_channel)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int size = blockDim.x * gridDim.x;
 
-	const int N = 10;
+	const int N = n_channel;
 
 	for (int idx = N * pos / size; idx < N * (pos+1) / size; ++idx) {
 		preact[idx] += bias[idx];
 	}
 }
 
-__global__ void bp_weight_fc(float d_weight[10][6][6][6], float d_preact[10], float p_output[6][6][6])
+/**name: bp_weight_fc
+ * function: compute the gradient of weight matrix of FC layer
+ * @param d_weight       output gradient of weight matrix
+ * @param d_preact       input gradient of feature matrix after FC layer
+ * @param p_output       previous output feature matrix before FC layer
+ * @param size           size of previous output feature matrix
+ * @Param in_channel     number of channels of previous output feature matrix
+ # @param out_channel    number of channels of input feature matrix after FC layer
+ */
+__global__ void bp_weight_fc(float *d_weight, float *d_preact, float *p_output,
+							const int size, const int in_channel, const int out_channel)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int size = blockDim.x * gridDim.x;
 
-	const int N = 10*6*6*6;
+	const int N = out_channel * in_channel * size * size;
 
 	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
 		int idx = n;
-		const int i1 = ((idx /= 1	) % 10);
-		const int i2 = ((idx /= 10	) % 6);
-		const int i3 = ((idx /= 6	) % 6);
-		const int i4 = ((idx /= 6	) % 6);
+		const int i1 = ((idx /= 1	) % out_channel);
+		const int i2 = ((idx /= out_channel	) % in_channel);
+		const int i3 = ((idx /= in_channel	) % size);
+		const int i4 = ((idx /= size	) % size);
 
 		d_weight[i1][i2][i3][i4] = d_preact[i1] * p_output[i2][i3][i4];
 	}
 }
 
-__global__ void bp_bias_fc(float bias[10], float d_preact[10])
+/**name: bp_bias_fc
+ * function: update the bias term of FC layer during backpropagation
+ * @param bias         bias term
+ * @oaram d_preact     gradient of feature matrix
+ * @param n_channel    number of channels of both bias term and feature matrix
+ */
+__global__ void bp_bias_fc(float *bias, float *d_preact, const int n_channel)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int size = blockDim.x * gridDim.x;
 
-	const int N = 10;
+	const int N = n_channel;
 
 	for (int idx = N * pos / size; idx < N * (pos+1) / size; ++idx) {
-		bias[idx] += dt * d_preact[idx];
+		bias[idx] += dt * d_preact[idx];  // update bias term
 	}
 }
 
-__global__ void bp_output_strideConv(float d_output[6][6][6], float n_weight[10][6][6][6], float nd_preact[10])
-{
-	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
-
-	const int N = 10*6*6*6;
-
-	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
-		int idx = n;
-		const int i1 = ((idx /= 1	) % 10);
-		const int i2 = ((idx /= 10	) % 6);
-		const int i3 = ((idx /= 6	) % 6);
-		const int i4 = ((idx /= 6	) % 6);
-
-		atomicAdd(&d_output[i2][i3][i4], n_weight[i1][i2][i3][i4] * nd_preact[i1]);
-	}
-}
-
-__global__ void bp_preact_strideConv(float d_preact[6][6][6], float d_output[6][6][6], float preact[6][6][6])
-{
-	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
-
-	const int N = 6*6*6;
-
-	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
-		int idx = n;
-		const int i1 = ((idx /= 1	) % 6);
-		const int i2 = ((idx /= 6	) % 6);
-		const int i3 = ((idx /= 6	) % 6);
-
-		const float o = step_function(preact[i1][i2][i3]);
-
-		d_preact[i1][i2][i3] = d_output[i1][i2][i3] * o * (1 - o);
-	}
-}
-
-__global__ void bp_weight_strideConv(float d_weight[1][4][4], float d_preact[6][6][6], float p_output[6][24][24])
-{
-	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
-
-	const int N = 1*4*4*6*6*6;
-	const float d = pow(6.0f, 3.0f);
-
-	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
-		int idx = n;
-		const int i1 = ((idx /= 1	) % 1);
-		const int i2 = ((idx /= 1	) % 4);
-		const int i3 = ((idx /= 4	) % 4);
-		const int i4 = ((idx /= 4	) % 6);
-		const int i5 = ((idx /= 6	) % 6);
-		const int i6 = ((idx /= 6	) % 6);
-
-		atomicAdd(&d_weight[i1][i2][i3], d_preact[i4][i5][i6] * p_output[i4][i5 * 4 + i2][i6 * 4 + i3]);
-	}
-}
-
-__global__ void bp_bias_strideConv(float bias[1], float d_preact[6][6][6])
-{
-	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int size = blockDim.x * gridDim.x;
-
-	const int N = 6*6*6;
-	const float d = pow(6.0f, 3.0f);
-
-	for (int n = N * pos / size; n < N * (pos+1) / size; ++n) {
-		int idx = n;
-		const int i1 = ((idx /= 1	) % 6);
-		const int i2 = ((idx /= 6	) % 6);
-		const int i3 = ((idx /= 6	) % 6);
-
-		atomicAdd(&bias[0], dt * d_preact[i1][i2][i3] / d);
-	}
-}
 
 __global__ void bp_output_conv(float d_output[6][24][24], float n_weight[1][4][4], float nd_preact[6][6][6])
 {
