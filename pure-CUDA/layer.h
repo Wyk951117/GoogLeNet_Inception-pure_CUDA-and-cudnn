@@ -13,7 +13,7 @@ const static float threshold = 1.0E-02f;
 
 class Layer {
 	public:
-	int M, N, O;
+	int kernel_size, in_size, out_size, in_channel, out_channel;
 
 	float *output;
 	float *preact;
@@ -25,7 +25,7 @@ class Layer {
 	float *d_preact;
 	float *d_weight;
 
-	Layer(int M, int N, int O);
+	Layer(int kernel_size, int in_size, int out_size, int in_channel, int out_channel);
 
 	~Layer();
 
