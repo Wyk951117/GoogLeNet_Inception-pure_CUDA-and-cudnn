@@ -14,6 +14,7 @@ const static float threshold = 1.0E-02f;
 class Layer {
 	public:
 	int kernel_size, in_size, out_size, in_channel, out_channel;
+	int M, N, O;
 
 	float *output;
 	float *preact;
