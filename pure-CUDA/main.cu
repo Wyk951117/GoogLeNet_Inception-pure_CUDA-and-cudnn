@@ -55,28 +55,33 @@ int main(int argc, const  char **argv)
 // Forward propagation of a single row in dataset
 static double forward_pass(double data[28][28])
 {
-	float input[28][28];
-
+	//float input[28][28];
+  float *input; //= (float *)malloc(28 * 28 * sizeof(float));
+  cudaMallocHost(&input, sizeof(float) * 28 * 28);
 	for (int i = 0; i < 28; ++i) {
 		for (int j = 0; j < 28; ++j) {
-			input[i][j] = data[i][j];
+			input[i * 28 + j] = data[i][j]; 
 		}
 	}
 
 	l_input.clear();
-	l_conv1.clear();
+	l_conv1.clear(); 
 	l_conv2.clear();
-	l_maxpool.clear();
+	l_maxpool.clear(); 
 	l_FC.clear();
+
 
 	clock_t start, end;
 	start = clock();
+  fprintf(stdout, "%f\n", input[0] );	
 
-	l_input.setOutput((float *)input);
-	
+	l_input.setOutput(input);
+  fprintf(stdout, "after setoutput\n");	
 	// Conv1
 	fp_conv<<<64, 64>>>(l_conv1.preact, l_input.output, l_conv1.weight, l_conv1.kernel_size, 
 						l_conv1.in_size, l_conv1.out_size, l_conv1.in_channel, l_conv1.out_channel, false);
+                                               
+  fprintf(stdout, "%f\n", l_conv1.preact[0]);
 	fp_bias_conv<<<64, 64>>>(l_conv1.preact, l_conv1.bias, l_conv1.out_size, l_conv1.out_channel);
 	apply_step_function<<<64, 64>>>(l_conv1.preact, l_conv1.output, l_conv1.out_size * l_conv1.out_size * l_conv1.out_channel);
 
@@ -111,7 +116,7 @@ static double back_pass()
 	bp_maxpool<<<64, 64>>>(l_maxpool.d_preact, l_maxpool.output, l_conv2.output, l_maxpool.kernel_size, l_maxpool.in_size, l_maxpool.out_size, l_maxpool.out_channel, true);
 
 	// Conv2
-	bp_output_conv<<<64, 64>>>(l_conv2.d_output, l_maxpool.weight, l_maxpool.d_preact, l_conv2.in_size, l_maxpool.kernel_size, 
+	bp_output_conv<<<64, 64>>>(l_conv2.d_output, l_conv2.weight, l_maxpool.d_preact, l_conv2.in_size, l_maxpool.kernel_size, 
 								l_maxpool.out_size, l_maxpool.in_channel, l_maxpool.out_channel, true, true);
 	bp_preact_conv<<<64, 64>>>(l_conv2.d_preact, l_conv2.d_output, l_conv2.preact, l_conv2.out_size, l_conv2.out_channel);
 	bp_weight_conv<<<64, 64>>>(l_conv2.d_weight, l_conv2.d_preact, l_conv1.output, l_conv2.kernel_size, l_conv2.in_size,
@@ -119,7 +124,7 @@ static double back_pass()
 	bp_bias_conv<<<64, 64>>>(l_conv2.bias, l_conv2.d_preact, l_conv2.out_size, l_conv2.out_channel);
 
 	// Conv1
-	bp_output_conv<<<64, 64>>>(l_conv1.d_output, l_conv2.weight, l_conv2.d_preact, l_conv1.in_size, l_conv2.kernel_size, 
+	bp_output_conv<<<64, 64>>>(l_conv1.d_output, l_conv1.weight, l_conv2.d_preact, l_conv1.in_size, l_conv2.kernel_size, 
 								l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true, true);
 	bp_preact_conv<<<64, 64>>>(l_conv1.d_preact, l_conv1.d_output, l_conv1.preact, l_conv1.out_size, l_conv1.out_channel);
 	bp_weight_conv<<<64, 64>>>(l_conv1.d_weight, l_conv1.d_preact, l_conv1.output, l_conv1.kernel_size, l_conv1.in_size,
@@ -175,11 +180,11 @@ static void learn()
 			l_maxpool.bp_clear();
 			l_conv2.bp_clear();
 			l_conv1.bp_clear();
-
+      
 			// Euclid distance of train_set[i]
 			calcLoss<<<10, 1>>>(l_FC.d_preact, l_FC.output, train_set[i].label, 10);
 			for(int j = 0; j < 10; j++){
-				printf("%f, %d\n", l_FC.output[j], train_set[i].label);
+			  fprintf(stdout, "%f, %d\n", l_FC.output[j], train_set[i].label);
 			}
 			cublasSnrm2(blas, 10, l_FC.d_preact, 1, &tmp_err);
 			err += tmp_err;
