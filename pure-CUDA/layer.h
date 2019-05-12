@@ -13,6 +13,7 @@ const static float threshold = 1.0E-02f;
 
 class Layer {
 	public:
+	int kernel_size, in_size, out_size, in_channel, out_channel;
 	int M, N, O;
 
 	float *output;
@@ -25,7 +26,7 @@ class Layer {
 	float *d_preact;
 	float *d_weight;
 
-	Layer(int M, int N, int O);
+	Layer(int kernel_size, int in_size, int out_size, int in_channel, int out_channel);
 
 	~Layer();
 
@@ -42,23 +43,18 @@ __global__ void calcLoss(float *err, float *output, unsigned int Y, const int N)
 __global__ void apply_grad(float *output, float *grad, const int N);
 
 // Forward propagation kernels
-__global__ void concat(float* output, float* input1, float* input2, float* input3, float* input4,
-						const int size, const int in_channel1, const int in_channel2, const int in_channel3, const int in_channel4)
-__global__ void fp_preact_conv(float input[28][28], float preact[6][24][24], float weight[6][5][5]);
-__global__ void fp_bias_conv(float preact[6][24][24], float bias[6]);
-__global__ void fp_preact_strideConv(float input[6][24][24], float preact[6][6][6], float weight[1][4][4]);
-__global__ void fp_bias_strideConv(float preact[6][6][6], float bias[1]);
-__global__ void fp_preact_fc(float input[6][6][6], float preact[10], float weight[10][6][6][6]);
-__global__ void fp_bias_fc(float preact[10], float bias[10]);
-
+__global__ void concat(float* output, float* input1, float* input2, float* input3, float* input4, const int size, const int in_channel1, const int in_channel2, const int in_channel3, const int in_channel4);
+__global__ void fp_conv(float* output, float* input, float* weight, const int kernel_size, const int size, const int n_size, const int in_channel, const int out_channel, bool SAME);
+__global__ void fp_bias_conv(float* preact, float* bias, const int size, const int n_channel);
+__global__ void fp_preact_fc(float* input, float* preact, float* weight, const int size, const int in_channel, const int out_channel);
+__global__ void fp_bias_fc(float *preact, float *bias, const int n_channel);
+__global__ void fp_maxpool(float* output, float* input, const int kernel_size, const int size, const int n_size, const int in_channel, bool SAME);
 // Back propagation kernels
-__global__ void bp_weight_fc(float d_weight[10][6][6][6], float d_preact[10], float p_output[6][6][6]);
-__global__ void bp_bias_fc(float bias[10], float d_preact[10]);
-__global__ void bp_output_strideConv(float d_output[6][6][6], float n_weight[10][6][6][6], float nd_preact[10]);
-__global__ void bp_preact_strideConv(float d_preact[6][6][6], float d_output[6][6][6], float preact[6][6][6]);
-__global__ void bp_weight_strideConv(float d_weight[1][4][4], float d_preact[6][6][6], float p_output[6][24][24]);
-__global__ void bp_bias_strideConv(float bias[1], float d_preact[6][6][6]);
-__global__ void bp_output_conv(float d_output[6][24][24], float n_weight[1][4][4], float nd_preact[6][6][6]);
-__global__ void bp_preact_conv(float d_preact[6][24][24], float d_output[6][24][24], float preact[6][24][24]);
-__global__ void bp_weight_conv(float d_weight[6][5][5], float d_preact[6][24][24], float p_output[28][28]);
-__global__ void bp_bias_conv(float bias[6], float d_preact[6][24][24]);
+__global__ void decat(float* input, float* output1, float* output2, float* output3, float* output4, const int size, const int out_channel1, const int out_channel2, const int out_channel3, const int out_channel4);
+__global__ void bp_weight_fc(float *d_weight, float *d_preact, float *p_output, const int size, const int in_channel, const int out_channel);
+__global__ void bp_bias_fc(float *bias, float *d_preact, const int n_channel);
+__global__ void bp_output_conv(float *d_output, float *weight, float *nd_preact, const int size, const int kernel_size, const int n_size, const int in_channel, const int out_channel, bool CONV, bool SAME);
+__global__ void bp_preact_conv(float *d_preact, float *d_output, float *preact, const int size, const int n_channel);
+__global__ void bp_weight_conv(float* d_weight, float* d_preact, float* p_output, const int kernel_size, const int size, const int n_size, const int in_channel, const int out_channel, bool SAME);
+__global__ void bp_bias_conv(float *bias, float *d_preact, const int size, const int n_channel); 
+__global__ void bp_maxpool(float* d_preact, float* preact, float* p_output, const int kernel_size, const int size, const int n_size, const int in_channel, bool SAME);
