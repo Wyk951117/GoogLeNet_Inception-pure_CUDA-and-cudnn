@@ -1,14 +1,20 @@
 #include "layer.h"
 
 // Constructor
-Layer::Layer(int M, int N, int O)
+Layer::Layer(int kernel_size, int in_size, int out_size, int in_channel, int out_channel)
 // M, N, O represents kernel size, # of channel and output size respectively,
 // all represented in terms of multiplications, e.g.: M = 5*5, N = 6, O = 28*28*10
 
 {
-	this->M = M;
-	this->N = N;
-	this->O = O;
+	this->kernel_size = kernel_size;
+	this->in_size = in_size;
+	this->out_size = out_size;
+	this->in_channel = in_channel;
+	this->out_channel = out_channel;
+
+	int N = in_channel * out_channel;
+	int M = kernel_size * kernel_size * out_size * out_size;
+	int O = out_channel * out_size * out_size;
 
 	float *h_bias, *h_weight;
 	// host memory allocation
