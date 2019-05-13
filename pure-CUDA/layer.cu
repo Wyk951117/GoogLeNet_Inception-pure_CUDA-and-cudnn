@@ -68,7 +68,7 @@ Layer::~Layer()
 void Layer::Out()
 {
   float* temp = (float *)malloc(sizeof(float) * O);
-	cudaMemcpy(temp, output, sizeof(float) * O, cudaMemcpyDeviceToHost);
+	cudaMemcpy(temp, preact, sizeof(float) * O, cudaMemcpyDeviceToHost);
   for(int i = 0; i < O; i++){
       fprintf(stdout, "%d : %f  ", i, temp[i]);
 	}
@@ -694,8 +694,10 @@ __global__ void bp_output_fc(float *d_output, float *d_preact, float *weight, co
  * @param layer1~7         intermediate layers within parallel structure
  * @param input_layer      the layer right before parallel structure
  */
-__global__ void fp_four_parallel(float* output_matrix, Layer* layer1, Layer* layer2, Layer* layer3, Layer* layer4, 
-																Layer* layer5, Layer* layer6, Layer* layer7, Layer* input_layer)
+ // __global__ void fp_four_parallel(float* output_matrix, Layer* layer1, Layer* layer2, Layer* layer3, Layer* layer4, 
+// 																Layer* layer5, Layer* layer6, Layer* layer7, Layer* input_layer)
+ __global__ void fp_four_parallel(float* output_matrix, Layer& layer1, Layer& layer2, Layer& layer3, Layer& layer4, Layer& layer5, 
+																	Layer& layer6, Layer& layer7, Layer& input_layer)
 {
 	const int pathNum = blockIdx.x;   // number of blocks of parent kernel should be 4
 
@@ -736,10 +738,10 @@ __global__ void fp_four_parallel(float* output_matrix, Layer* layer1, Layer* lay
 		apply_step_function<<<64, 64>>>(layer7.preact, layer7.output, layer7.out_size * layer7.out_size * layer7.out_channel);
 	}
 
-	cudadeviceSynchronize();
+	cudaDeviceSynchronize();
 
 	concat<<<64,64>>>(output_matrix, layer1.output, layer5.output, layer6.output, layer7.output,
-									output_layer.out_size, layer1.out_channel, layer5.out_channel, layer6.out_channel, layer7.out_channel);
+									layer1.out_size, layer1.out_channel, layer5.out_channel, layer6.out_channel, layer7.out_channel);
 }
 
 
@@ -750,8 +752,12 @@ __global__ void fp_four_parallel(float* output_matrix, Layer* layer1, Layer* lay
  * @param slice1~4      	 parts responsible for the backpropagation of each paths in this parallel structure, belong to the same gradient matrix
  * @param pre_maxpl        the previous layer of maxpooling layer in this parallel block, since we need it to compute the gradient of maxpooling layer
  */
-__global__ void bp_four_parallel(float* output_matrix, Layer* layer1, Layer* layer2, Layer* layer3, Layer* layer4, Layer* layer5, 
-																Layer* layer6, Layer* layer7, float* slice1, float* slice2, float* slice3, float* slice4, float* sum, float* pre_maxpl)
+
+//  __global__ void bp_four_parallel(float* output_matrix, Layer* layer1, Layer* layer2, Layer* layer3, Layer* layer4, Layer* layer5, 
+// 																Layer* layer6, Layer* layer7, float* slice1, float* slice2, float* slice3, float* slice4, float* pre_maxpl)
+__global__ void bp_four_parallel(float* output_matrix, Layer& layer1, Layer& layer2, Layer& layer3, Layer& layer4, Layer& layer5, 
+																Layer& layer6, Layer& layer7, float* slice1, float* slice2, float* slice3, float* slice4, float* pre_maxpl)
+
 {
 	const int pathNum = blockIdx.x;   // number of blocks of parent kernel should be 4
 
@@ -807,7 +813,7 @@ __global__ void bp_four_parallel(float* output_matrix, Layer* layer1, Layer* lay
 														 layer4.in_size, layer4.out_size, layer4.out_channel, true);
 	}
 
-	cudadeviceSynchronize();
+	cudaDeviceSynchronize();
 	const int numElem = layer1.in_size * layer1.in_size * layer1.in_channel;
 	sumGrad<<<64,64>>>(output_matrix, layer1.d_preact, layer2.d_preact, layer3.d_preact, layer4.d_preact, numElem);
 }
