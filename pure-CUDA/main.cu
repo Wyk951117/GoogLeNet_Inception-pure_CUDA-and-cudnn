@@ -45,7 +45,10 @@ int main(int argc, const  char **argv)
 		return 1;
 	}
 
+      
 	loaddata();
+
+        //test();
 	learn();
 	test();
 
@@ -56,6 +59,7 @@ int main(int argc, const  char **argv)
 static double forward_pass(double data[28][28])
 {
 	float input[28][28];
+        //fprintf(stdout, "%f\n", data[14][14]);
 
 	for (int i = 0; i < 28; ++i) {
 		for (int j = 0; j < 28; ++j) {
@@ -79,20 +83,22 @@ static double forward_pass(double data[28][28])
 						l_conv1.in_size, l_conv1.out_size, l_conv1.in_channel, l_conv1.out_channel, false);
 	fp_bias_conv<<<64, 64>>>(l_conv1.preact, l_conv1.bias, l_conv1.out_size, l_conv1.out_channel);
 	apply_step_function<<<64, 64>>>(l_conv1.preact, l_conv1.output, l_conv1.out_size * l_conv1.out_size * l_conv1.out_channel);
-
+	//l_conv1.Out();
 	// Conv2
-	fp_conv<<<64, 64>>>(l_conv2.preact, l_conv1.output, l_conv2.weight, l_conv2.kernel_size, 
-			l_conv2.in_size, l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true);
-	fp_bias_conv<<<64, 64>>>(l_conv2.preact, l_conv2.bias, l_conv2.out_size, l_conv2.out_channel);
-	apply_step_function<<<64, 64>>>(l_conv2.preact, l_conv2.output, l_conv2.out_size * l_conv2.out_size * l_conv2.out_channel);
-
+	// fp_conv<<<64, 64>>>(l_conv2.preact, l_conv1.output, l_conv2.weight, l_conv2.kernel_size, 
+	// 		l_conv2.in_size, l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true);
+	// fp_bias_conv<<<64, 64>>>(l_conv2.preact, l_conv2.bias, l_conv2.out_size, l_conv2.out_channel);
+	// apply_step_function<<<64, 64>>>(l_conv2.preact, l_conv2.output, l_conv2.out_size * l_conv2.out_size * l_conv2.out_channel);
+	//l_conv2.Out();
 	// Maxpooling
-	fp_maxpool<<<64, 64>>>(l_maxpool.output, l_conv2.output, l_maxpool.kernel_size, l_maxpool.in_size, l_maxpool.out_size, l_maxpool.out_channel, true);
-
+	//fp_maxpool<<<64, 64>>>(l_maxpool.output, l_conv2.output, l_maxpool.kernel_size, l_maxpool.in_size, l_maxpool.out_size, l_maxpool.out_channel, true);
+	fp_maxpool<<<64, 64>>>(l_maxpool.output, l_conv1.output, l_maxpool.kernel_size, l_maxpool.in_size, l_maxpool.out_size, l_maxpool.out_channel, true);
+	//l_maxpool.Out(); 
 	// FC
 	fp_preact_fc<<<64, 64>>>(l_maxpool.output, l_FC.preact, l_FC.weight, l_FC.in_size, l_FC.in_channel, l_FC.out_channel);
 	fp_bias_fc<<<64, 64>>>(l_FC.preact, l_FC.bias, l_FC.out_channel);
 	apply_step_function<<<64, 64>>>(l_FC.preact, l_FC.output, l_FC.out_size * l_FC.out_size * l_FC.out_channel);
+	//l_FC.Out();
 	
 	end = clock();
 	return ((double) (end - start)) / CLOCKS_PER_SEC;
@@ -106,30 +112,37 @@ static double back_pass()
 	// FC
 	bp_weight_fc<<<64, 64>>>(l_FC.d_weight, l_FC.d_preact, l_maxpool.output, l_FC.in_size, l_FC.in_channel, l_FC.out_channel);
 	bp_bias_fc<<<64, 64>>>(l_FC.bias, l_FC.d_preact, l_FC.out_channel);
+	bp_output_fc<<<64, 64>>>(l_FC.d_output, l_FC.d_preact, l_FC.weight, l_FC.in_size, l_FC.in_channel, l_FC.out_channel);
+	//l_FC.dOut();
 
 	// Maxpooling
-	bp_maxpool<<<64, 64>>>(l_maxpool.d_preact, l_maxpool.output, l_conv2.output, l_maxpool.kernel_size, l_maxpool.in_size, l_maxpool.out_size, l_maxpool.out_channel, true);
+	//bp_maxpool<<<64, 64>>>(l_maxpool.d_preact, l_maxpool.output, l_conv2.output, l_FC.d_output, l_maxpool.kernel_size, l_maxpool.in_size, l_maxpool.out_size, l_maxpool.out_channel, true);
+	bp_maxpool<<<64, 64>>>(l_maxpool.d_preact, l_maxpool.output, l_conv1.output, l_FC.d_output, l_maxpool.kernel_size, l_maxpool.in_size, l_maxpool.out_size, l_maxpool.out_channel, true);
 
+	//l_maxpool.dOut();
 	// Conv2
-	bp_output_conv<<<64, 64>>>(l_conv2.d_output, l_maxpool.weight, l_maxpool.d_preact, l_conv2.in_size, l_maxpool.kernel_size, 
-								l_maxpool.out_size, l_maxpool.in_channel, l_maxpool.out_channel, true, true);
-	bp_preact_conv<<<64, 64>>>(l_conv2.d_preact, l_conv2.d_output, l_conv2.preact, l_conv2.out_size, l_conv2.out_channel);
-	bp_weight_conv<<<64, 64>>>(l_conv2.d_weight, l_conv2.d_preact, l_conv1.output, l_conv2.kernel_size, l_conv2.in_size,
-								l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true);
-	bp_bias_conv<<<64, 64>>>(l_conv2.bias, l_conv2.d_preact, l_conv2.out_size, l_conv2.out_channel);
+	// bp_output_conv<<<64, 64>>>(l_conv2.d_output, l_conv2.weight, l_maxpool.d_preact, l_conv2.in_size, l_maxpool.kernel_size, 
+	// 							l_maxpool.out_size, l_maxpool.in_channel, l_maxpool.out_channel, true, true);
+	// bp_preact_conv<<<64, 64>>>(l_conv2.d_preact, l_conv2.d_output, l_conv2.preact, l_conv2.out_size, l_conv2.out_channel);
+	// bp_weight_conv<<<64, 64>>>(l_conv2.d_weight, l_conv2.d_preact, l_conv1.output, l_conv2.kernel_size, l_conv2.in_size,
+	// 							l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true);
+	// bp_bias_conv<<<64, 64>>>(l_conv2.bias, l_conv2.d_preact, l_conv2.out_size, l_conv2.out_channel);
+	//l_conv2.dOut();
 
 	// Conv1
-	bp_output_conv<<<64, 64>>>(l_conv1.d_output, l_conv2.weight, l_conv2.d_preact, l_conv1.in_size, l_conv2.kernel_size, 
+	//bp_output_conv<<<64, 64>>>(l_conv1.d_output, l_conv1.weight, l_conv2.d_preact, l_conv1.in_size, l_conv2.kernel_size, 
+	bp_output_conv<<<64, 64>>>(l_conv1.d_output, l_conv1.weight, l_maxpool.d_preact, l_conv1.in_size, l_conv2.kernel_size, 
 								l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true, true);
 	bp_preact_conv<<<64, 64>>>(l_conv1.d_preact, l_conv1.d_output, l_conv1.preact, l_conv1.out_size, l_conv1.out_channel);
 	bp_weight_conv<<<64, 64>>>(l_conv1.d_weight, l_conv1.d_preact, l_conv1.output, l_conv1.kernel_size, l_conv1.in_size,
 		l_conv1.out_size, l_conv1.in_channel, l_conv1.out_channel, false);
 	bp_bias_conv<<<64, 64>>>(l_conv1.bias, l_conv1.d_preact, l_conv1.out_size, l_conv1.out_channel);
+	//l_conv1.dOut();
 
 
 	apply_grad<<<64, 64>>>(l_FC.weight, l_FC.d_weight, l_FC.M * l_FC.N);
 	apply_grad<<<64, 64>>>(l_conv1.weight, l_conv1.d_weight, l_conv1.M * l_conv1.N);
-	apply_grad<<<64, 64>>>(l_conv2.weight, l_conv2.d_weight, l_conv2.M * l_conv2.N);
+	//apply_grad<<<64, 64>>>(l_conv2.weight, l_conv2.d_weight, l_conv2.M * l_conv2.N);
 
 	end = clock();
 	return ((double) (end - start)) / CLOCKS_PER_SEC;
@@ -157,7 +170,7 @@ static void learn()
 	cublasCreate(&blas);
 
 	float err;
-	int iter = 1000;
+	int iter = 100;
 	
 	double time_taken = 0.0;
 
@@ -166,7 +179,7 @@ static void learn()
 	while (iter < 0 || iter-- > 0) {
 		err = 0.0f;
 
-		for (int i = 0; i < train_cnt; ++i) {
+		for (int i = 0; i < 3000; ++i) {
 			float tmp_err;
 
 			time_taken += forward_pass(train_set[i].data);
@@ -177,20 +190,24 @@ static void learn()
 			l_conv1.bp_clear();
 
 			// Euclid distance of train_set[i]
+			//l_FC.Out();
 			calcLoss<<<10, 1>>>(l_FC.d_preact, l_FC.output, train_set[i].label, 10);
-			for(int j = 0; j < 10; j++){
-				printf("%f, %d\n", l_FC.output[j], train_set[i].label);
-			}
+			//l_FC.dOut();
+			//cudaMemcpy(fuck, l_FC.d_preact, sizeof(float) * 10, cudaMemcpyDeviceToHost);
+			//for(int i = 0; i < 10; i++){
+			// 	fprintf(stdout, " %f ", fuck[i]);
+			// }                        
+			// fprintf(stdout, "\n");
 			cublasSnrm2(blas, 10, l_FC.d_preact, 1, &tmp_err);
 			err += tmp_err;
 
 			time_taken += back_pass();
 		}
-
-		err /= train_cnt;
+		//printf("jfhgodsufg\n");
+		err /= 3000;
 		fprintf(stdout, "error: %e, time_on_gpu: %lf\n", err, time_taken);
-
-		if (err < threshold) {
+		//l_FC.Out();
+		if (err < threshold) {   // threshold
 			fprintf(stdout, "Training complete, error less than threshold\n\n");
 			break;
 		}

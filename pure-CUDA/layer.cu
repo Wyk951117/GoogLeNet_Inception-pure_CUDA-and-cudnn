@@ -1,4 +1,5 @@
 #include "layer.h"
+#include <cstdio>
 
 // Constructor
 Layer::Layer(int kernel_size, int in_size, int out_size, int in_channel, int out_channel)
@@ -12,24 +13,23 @@ Layer::Layer(int kernel_size, int in_size, int out_size, int in_channel, int out
 	this->in_channel = in_channel;
 	this->out_channel = out_channel;
 
-	int N = in_channel * out_channel;
-	int M = kernel_size * kernel_size * out_size * out_size;
-	int O = out_channel * out_size * out_size;
+	this->N = in_channel * out_channel;
+	this->M = kernel_size * kernel_size * out_size * out_size;
+	this->O = out_channel * out_size * out_size;
 
-	float *h_bias, *h_weight;
 	// host memory allocation
-	h_bias = (float *)malloc(sizeof(float) * N);
-	h_weight = (float *)malloc(sizeof(float) * N * M);
+	this->h_bias = (float *)malloc(sizeof(float) * N);
+	this->h_weight = (float *)malloc(sizeof(float) * N * M);
 
-	float *output, *preact, *bias, *weight;
+	//float *output, *preact, *bias, *weight;
 
 	// initialize weights and bias
 	for (int i = 0; i < N; ++i) {
-		h_bias[i] = 0.5f - float(rand()) / float(RAND_MAX);
+		this->h_bias[i] = 0.5f - float(rand()) / float(RAND_MAX);
 		/*h_bias[i] = 0.0f;*/
 
 		for (int j = 0; j < M; ++j) {
-			h_weight[i * N + j] = 0.5f - float(rand()) / float(RAND_MAX);
+			this->h_weight[i * N + j] = 0.5f - float(rand()) / float(RAND_MAX);
 			/*h_weight[i][j] = 0.05f;*/
 		}
 	}
@@ -65,6 +65,26 @@ Layer::~Layer()
 	cudaFree(d_weight);
 }
 
+void Layer::Out()
+{
+  float* temp = (float *)malloc(sizeof(float) * O);
+	cudaMemcpy(temp, output, sizeof(float) * O, cudaMemcpyDeviceToHost);
+  for(int i = 0; i < O; i++){
+      fprintf(stdout, "%d : %f  ", i, temp[i]);
+	}
+	fprintf(stdout,"\n");
+}
+
+void Layer::dOut()
+{
+	float* temp = (float *)malloc(sizeof(float) * O);
+	cudaMemcpy(temp, d_output, sizeof(float) * O, cudaMemcpyDeviceToHost);
+  for(int i = 0; i < O; i++){
+      fprintf(stdout, "%d : %f  ", i, temp[i]);
+	}
+	fprintf(stdout,"\n");	
+}
+
 // Send data one row from dataset to the GPU
 void Layer::setOutput(float *data)
 {
@@ -91,6 +111,8 @@ void Layer::bp_clear()
 __device__ float step_function(float v)
 {
 	return 1 / (1 + exp(-v));
+	//v = (v > 0) ? v : 0;
+	//return v;
 }
 
 /**name: apply_step_function
@@ -101,7 +123,7 @@ __global__ void apply_step_function(float *input, float *output, const int N)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int totalPos = blockDim.x * gridDim.x;
-
+  
 	for (int idx = N * pos / totalPos; idx < N * (pos+1) / totalPos; ++idx) {
 		output[idx] = step_function(input[idx]);
 	}
@@ -238,7 +260,7 @@ __global__ void fp_conv(float* output, float* input, float* weight, const int ke
 			input_row = i_kernel_row + i_row;
 			input_col = i_kernel_col + i_col;
 		}
-		if(input_row >= 0 && input_col < size && input_col >=0 && input_col < size){
+		if(input_row >= 0 && input_row < size && input_col >=0 && input_col < size){
 			atomicAdd(&output[((i_channel % out_channel) * n_size + i_col) * n_size + i_row], 
 						weight[(i_channel * kernel_size + i_kernel_col) * kernel_size + i_kernel_row] 
 						* input[((i_channel % in_channel) * size + input_col) * size + input_row]);
@@ -375,52 +397,87 @@ __global__ void bp_bias_fc(float *bias, float *d_preact, const int n_channel)
  * @param CONV             boolean indcating whether the next layer is a convolution layer
  * @Param SAME             boolean indicating whether "SAME" padding was used during forward pass of next layer
  */
-__global__ void bp_output_conv(float *d_output, float *n_weight, float *nd_preact, const int size,
-							const int kernel_size, const int n_size, const int in_channel, const int out_channel, bool CONV, bool SAME)
+// __global__ void bp_output_conv(float *d_output, float *n_weight, float *nd_preact, const int size,
+// 							const int kernel_size, const int n_size, const int in_channel, const int out_channel, bool CONV, bool SAME)
+// {
+// 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
+// 	const int totalPos = blockDim.x * gridDim.x;
+
+// 	const int N = kernel_size * kernel_size * n_size * n_size * in_channel * out_channel;
+// 	const int weight_channel = out_channel * in_channel;
+// 	const int padding = (kernel_size - 1) / 2;   // must be int
+// 	int input_row, input_col;
+
+// 	for (int n = N * pos / totalPos; n < N * (pos+1) / totalPos; ++n) { 
+// 		int idx = n;
+// 		if (CONV){   // the next layer is convolution or maxpooling
+// 			const int i_channel = ((idx /= 1	) % weight_channel);
+// 			const int i_kernel_row = ((idx /= weight_channel) % kernel_size); 
+// 			const int i_kernel_col = ((idx /= kernel_size) % kernel_size);
+// 			const int i_row = ((idx /= kernel_size	) % n_size);
+// 			const int i_col = ((idx /= n_size) % n_size);
+			
+// 			if(SAME){     // with padding situation
+// 				input_row = i_row + i_kernel_row - padding;
+// 				input_col = i_col + i_kernel_col - padding;
+// 			}
+// 			else{
+// 				input_row = i_row + i_kernel_row;
+// 				input_col = i_col + i_kernel_col;
+// 			}
+// 			if(input_row >= 0 && input_row < size && input_col >=0 && input_col < size){
+// 				atomicAdd(&d_output[((i_channel % in_channel) * size + input_col) * size + input_row], 
+// 							n_weight[(i_channel * kernel_size + i_kernel_col) * kernel_size + i_kernel_row] 
+// 							* nd_preact[((i_channel % out_channel) * n_size + i_col) * n_size + i_row]);
+// 			}
+// 		}
+// 		else{
+// 			const int i_channel = ((idx /= 1) % weight_channel);
+// 			const int i_row = ((idx /= weight_channel) % size);
+// 			const int i_col = ((idx /= size	) % size);
+	
+// 			atomicAdd(&d_output[((i_channel % in_channel) * size + i_col) * size + i_row], 
+// 			nd_preact[i_channel % out_channel] * n_weight[(i_channel * size + i_col) * size + i_row]);
+	
+// 		}
+// 	}
+// }
+__global__ void bp_output_conv(float *d_output, float *weight, float *nd_preact, const int size,
+	const int kernel_size, const int n_size, const int in_channel, const int out_channel, bool CONV, bool SAME)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int totalPos = blockDim.x * gridDim.x;
 
-	const int N = kernel_size * kernel_size * n_size * n_size * in_channel * out_channel;
+	const int N = kernel_size * kernel_size * size * size * in_channel * out_channel;
 	const int weight_channel = out_channel * in_channel;
 	const int padding = (kernel_size - 1) / 2;   // must be int
-	int input_row, input_col;
 
 	for (int n = N * pos / totalPos; n < N * (pos+1) / totalPos; ++n) { 
 		int idx = n;
-		if (CONV){   // the next layer is convolution or maxpooling
-			const int i_channel = ((idx /= 1	) % weight_channel);
-			const int i_kernel_row = ((idx /= weight_channel) % kernel_size); 
-			const int i_kernel_col = ((idx /= kernel_size) % kernel_size);
-			const int i_row = ((idx /= kernel_size	) % n_size);
-			const int i_col = ((idx /= n_size) % n_size);
-			
-			if(SAME){     // with padding situation
-				input_row = i_row + i_kernel_row - padding;
-				input_col = i_col + i_kernel_col - padding;
-			}
-			else{
-				input_row = i_row + i_kernel_row;
-				input_col = i_col + i_kernel_col;
-			}
-			if(input_row >= 0 && input_col < size && input_col >=0 && input_col < size){
-				atomicAdd(&d_output[((i_channel % in_channel) * size + input_col) * size + input_row], 
-							n_weight[(i_channel * kernel_size + i_kernel_col) * kernel_size + i_kernel_row] 
-							* nd_preact[((i_channel % out_channel) * n_size + i_col) * n_size + i_row]);
-			}
+		int bpinput_row;
+		int bpinput_col;
+		const int i_channel = ((idx /= 1	) % weight_channel);
+		const int i_kernel_row = ((idx /= weight_channel) % kernel_size); 
+		const int i_kernel_col = ((idx /= kernel_size) % kernel_size);
+		const int i_row = ((idx /= kernel_size	) % size);
+		const int i_col = ((idx /= size) % size);   
+
+		if (SAME){ // SAME padding scheme implemented
+			bpinput_row = i_kernel_row + i_row - padding;
+			bpinput_col = i_kernel_col + i_col - padding;
 		}
 		else{
-			const int i_channel = ((idx /= 1) % weight_channel);
-			const int i_row = ((idx /= weight_channel) % size);
-			const int i_col = ((idx /= size	) % size);
-	
-			atomicAdd(&d_output[((i_channel % in_channel) * size + i_col) * size + i_row], 
-			nd_preact[i_channel % out_channel] * n_weight[(i_channel * size + i_col) * size + i_row]);
-	
+			bpinput_row = i_kernel_row + i_row - 2 * padding;
+			bpinput_col = i_kernel_col + i_col - 2 * padding;
 		}
-	}
-}
 
+		if(bpinput_row >= 0 && bpinput_row < n_size && bpinput_col >=0 && bpinput_col < n_size){   
+			atomicAdd(&d_output[((i_channel % in_channel) * size + i_col) * size + i_row], 
+				weight[(i_channel * kernel_size + (kernel_size - 1 - i_kernel_col)) * kernel_size + kernel_size - 1 - i_kernel_row] 
+				* nd_preact[((i_channel % out_channel) * n_size + bpinput_col) * n_size + bpinput_row]);
+		}   
+	}  
+} 
 /**name:bp_preact_conv
  * function: compute the gradient of current layer for update of weights and bias
  * @param d_preact  gradient of current layer
@@ -440,9 +497,13 @@ __global__ void bp_preact_conv(float *d_preact, float *d_output, float *preact, 
 		const int i_col = ((idx /= n_channel	) % size);
 		const int i_row = ((idx /= n_channel	) % size);
 
-		const float o = step_function(preact[(i_channel * size + i_col) * size + i_row]);
+		const float o = step_function(preact[(i_channel * size + i_col) * size + i_row]); 
+		//const float o = (preact[(i_channel * size + i_col) * size + i_row] > 0) ? 1 : 0;
+		//printf("%f\n", o);
 
-		d_preact[(i_channel * size + i_col) * size + i_row] = d_output[(i_channel * size + i_col) * size + i_row] * o * (1 - o);
+		//d_preact[(i_channel * size + i_col) * size + i_row] = d_output[(i_channel * size + i_col) * size + i_row] * o * (1 - o);
+		d_preact[(i_channel * size + i_col) * size + i_row] = d_output[(i_channel * size + i_col) * size + i_row] * o;
+
 	}
 }
 /**name: bp_weight_conv
@@ -485,7 +546,7 @@ __global__ void bp_weight_conv(float* d_weight, float* d_preact, float* p_output
 			input_row = i_kernel_row + i_row;
 			input_col = i_kernel_col + i_col;
 		}
-		if(input_row >= 0 && input_col < size && input_col >=0 && input_col < size){
+		if(input_row >= 0 && input_row < size && input_col >=0 && input_col < size){
 			atomicAdd(&d_weight[(i_channel * kernel_size + i_kernel_col) * kernel_size + i_kernel_row], 
 						d_preact[((i_channel % out_channel) * n_size + i_col) * n_size + i_row] * p_output[((i_channel % in_channel) * size + input_col) + input_row]);
 		}
@@ -534,7 +595,7 @@ __global__ void fp_maxpool(float* output, float* input, const int kernel_size, c
 		const int i_channel = ((idx /= kernel_size	) % in_channel);
 		const int i_row = ((idx /= in_channel	) % n_size);
 		const int i_col = ((idx /= n_size	) % n_size);
-    float maxidx = (float)-1;
+    float maxidx = (float)-100;
 		// corresponding position of the input matrix and size of output matrix
 		if (SAME){ // SAME padding scheme implemented
 			input_row = i_kernel_row + i_row - padding;
@@ -544,15 +605,15 @@ __global__ void fp_maxpool(float* output, float* input, const int kernel_size, c
 			input_row = i_kernel_row + i_row;
 			input_col = i_kernel_col + i_col;
 		}
-		if(input_row >= 0 && input_col < size && input_col >=0 && input_col < size){
+		if(input_row >= 0 && input_row < size && input_col >=0 && input_col < size){
 			  if (input[((i_channel % in_channel) * size + input_col) * size + input_row] > maxidx)
-            output[((i_channel % in_channel) * n_size + i_col) * n_size + i_row] = maxidx;
+            output[((i_channel % in_channel) * n_size + i_col) * n_size + i_row] = input[((i_channel % in_channel) * size + input_col) * size + input_row];
 		}
 	}
 }
 
 
-__global__ void bp_maxpool(float* d_preact, float* preact, float* p_output, const int kernel_size, const int size, const int n_size, const int in_channel, bool SAME)
+__global__ void bp_maxpool(float* d_preact, float* preact, float* p_output, float* nd_output, const int kernel_size, const int size, const int n_size, const int in_channel, bool SAME)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int totalPos = blockDim.x * gridDim.x;
@@ -579,13 +640,32 @@ __global__ void bp_maxpool(float* d_preact, float* preact, float* p_output, cons
 			input_row = i_kernel_row + i_row;
 			input_col = i_kernel_col + i_col;
 		}
-		if(input_row >= 0 && input_col < size && input_col >=0 && input_col < size){
-			  if (preact[((i_channel % in_channel) * size + input_col) * size + input_row] > maxidx)
+		if(input_row >= 0 && input_row < size && input_col >=0 && input_col < size){
+			  if (p_output[((i_channel % in_channel) * size + input_col) * size + input_row] > maxidx)
           {
-            preact[((i_channel % in_channel) * size + input_col) * size + input_row] = maxidx;
+            maxidx = p_output[((i_channel % in_channel) * size + input_col) * size + input_row] ;
             idx = ((i_channel % in_channel) * size + input_col) * size + input_row;
           }
 		}
-    p_output[idx] = d_preact[((i_channel % in_channel) * n_size + i_col) * n_size + i_row];  
+    d_preact[idx] = nd_output[((i_channel % in_channel) * n_size + i_col) * n_size + i_row];  
+	}
+}
+
+
+__global__ void bp_output_fc(float *d_output, float *d_preact, float *weight, const int size, const int in_channel, const int out_channel)
+{
+	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
+	const int totalPos = blockDim.x * gridDim.x;
+
+	const int N = out_channel * in_channel * size * size;
+	const int weight_channel = out_channel * in_channel;
+
+	for (int n = N * pos / totalPos; n < N * (pos+1) / totalPos; ++n) {
+		int idx = n;
+		const int i_channel = ((idx /= 1	) % weight_channel);
+		const int i_row = ((idx /= weight_channel	) % size);
+		const int i_col = ((idx /= size	) % size);
+
+		atomicAdd(&d_output[((i_channel % in_channel) * size + i_col) * size + i_row], d_preact[i_channel % out_channel] * weight[(i_channel * size + i_col) * size + i_row]);
 	}
 }
