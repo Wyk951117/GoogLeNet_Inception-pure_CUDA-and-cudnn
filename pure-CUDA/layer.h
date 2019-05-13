@@ -53,6 +53,7 @@ __global__ void fp_bias_conv(float* preact, float* bias, const int size, const i
 __global__ void fp_preact_fc(float* input, float* preact, float* weight, const int size, const int in_channel, const int out_channel);
 __global__ void fp_bias_fc(float *preact, float *bias, const int n_channel);
 __global__ void fp_maxpool(float* output, float* input, const int kernel_size, const int size, const int n_size, const int in_channel, bool SAME);
+__global__ void 
 // Back propagation kernels
 __global__ void decat(float* input, float* output1, float* output2, float* output3, float* output4, const int size, const int out_channel1, const int out_channel2, const int out_channel3, const int out_channel4);
 __global__ void bp_weight_fc(float *d_weight, float *d_preact, float *p_output, const int size, const int in_channel, const int out_channel);

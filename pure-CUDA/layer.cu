@@ -669,3 +669,145 @@ __global__ void bp_output_fc(float *d_output, float *d_preact, float *weight, co
 		atomicAdd(&d_output[((i_channel % in_channel) * size + i_col) * size + i_row], d_preact[i_channel % out_channel] * weight[(i_channel * size + i_col) * size + i_row]);
 	}
 }
+
+
+/**
+ * sum multiple gradients to one gradient for backpropagation of inception module
+ * 
+ * @param input1       gradient of route 1 during backpropagation
+ * @param output       gradient of the sum of four gradients
+ * @param numElem      total number of elements for each gradient (gradients are of the same size)
+ */
+ __global__ void sumGrad(float* output, float* input1, float* input2, float* input3, float* input4, const int numElem)
+ {
+		 size_t pos = blockDim.x * blockIdx.x + threadIdx.x;
+		 size_t size = blockDim.x * gridDim.x;
+ 
+		 for(int i = numElem * pos / size; i < numElem * (pos+1) / size; i++){
+				 output[i] = input1[i] + input2[i] + input3[i] + input4[i];
+		 }
+ }
+
+/**name: fp_four_parallel()
+ * function: a parallel structure that runs four parallel deep learning forward path at the same time
+ * @param output_matrix    the output feature matrix which is the result of concatenation
+ * @param layer1~7         intermediate layers within parallel structure
+ * @param input_layer      the layer right before parallel structure
+ */
+__global__ void fp_four_parallel(float* output_matrix, Layer* layer1, Layer* layer2, Layer* layer3, Layer* layer4, 
+																Layer* layer5, Layer* layer6, Layer* layer7, Layer* input_layer)
+{
+	const int pathNum = blockIdx.x;   // number of blocks of parent kernel should be 4
+
+	if (pathNum == 0){
+		fp_conv<<<64, 64>>>(layer1.preact, input_layer.output, layer1.weight, layer1.kernel_size, 
+			layer1.in_size, layer1.out_size, layer1.in_channel, layer1.out_channel, true);
+		fp_bias_conv<<<64, 64>>>(layer1.preact, layer1.bias, layer1.out_size, layer1.out_channel);
+		apply_step_function<<<64, 64>>>(layer1.preact, layer1.output, layer1.out_size * layer1.out_size * layer1.out_channel);
+	}
+	else if(pathNum == 1){
+		fp_conv<<<64, 64>>>(layer2.preact, input_layer.output, layer2.weight, layer2.kernel_size, 
+			layer2.in_size, layer2.out_size, layer2.in_channel, layer2.out_channel, true);
+		fp_bias_conv<<<64, 64>>>(layer2.preact, layer2.bias, layer2.out_size, layer2.out_channel);
+		apply_step_function<<<64, 64>>>(layer2.preact, layer2.output, layer2.out_size * layer2.out_size * layer2.out_channel);
+		
+		fp_conv<<<64, 64>>>(layer5.preact, layer2.output, layer5.weight, layer5.kernel_size, 
+			layer5.in_size, layer5.out_size, layer5.in_channel, layer5.out_channel, true);
+		fp_bias_conv<<<64, 64>>>(layer5.preact, layer5.bias, layer5.out_size, layer5.out_channel);
+		apply_step_function<<<64, 64>>>(layer5.preact, layer5.output, layer5.out_size * layer5.out_size * layer5.out_channel);
+	}
+	else if(pathNum == 2){
+		fp_conv<<<64, 64>>>(layer3.preact, input_layer.output, layer3.weight, layer3.kernel_size, 
+			layer3.in_size, layer3.out_size, layer3.in_channel, layer3.out_channel, true);
+		fp_bias_conv<<<64, 64>>>(layer3.preact, layer3.bias, layer3.out_size, layer3.out_channel);
+		apply_step_function<<<64, 64>>>(layer3.preact, layer3.output, layer3.out_size * layer3.out_size * layer3.out_channel);
+
+		fp_conv<<<64, 64>>>(layer6.preact, layer3.output, layer6.weight, layer6.kernel_size, 
+			layer6.in_size, layer6.out_size, layer6.in_channel, layer6.out_channel, true);
+		fp_bias_conv<<<64, 64>>>(layer6.preact, layer6.bias, layer6.out_size, layer6.out_channel);
+		apply_step_function<<<64, 64>>>(layer6.preact, layer6.output, layer6.out_size * layer6.out_size * layer6.out_channel);
+	}
+	else{
+		fp_maxpool<<<64, 64>>>(layer4.output, input_layer.output, layer4.kernel_size, layer4.in_size, layer4.out_size, layer4.out_channel, true);
+
+		fp_conv<<<64, 64>>>(layer7.preact, layer4.output, layer7.weight, layer7.kernel_size, 
+			layer7.in_size, layer7.out_size, layer7.in_channel, layer7.out_channel, true);
+		fp_bias_conv<<<64, 64>>>(layer7.preact, layer7.bias, layer7.out_size, layer7.out_channel);
+		apply_step_function<<<64, 64>>>(layer7.preact, layer7.output, layer7.out_size * layer7.out_size * layer7.out_channel);
+	}
+
+	cudadeviceSynchronize();
+
+	concat<<<64,64>>>(output_matrix, layer1.output, layer5.output, layer6.output, layer7.output,
+									output_layer.out_size, layer1.out_channel, layer5.out_channel, layer6.out_channel, layer7.out_channel);
+}
+
+
+/**name: bp_four_parallel()
+ * function: a parallel structure that runs four parallel deep learning backward path at the same time
+ * @param output_matrix    the output feature matrix which is the sum of four gradient matrices
+ * @param layer1~7         intermediate layers within parallel structure
+ * @param slice1~4      	 parts responsible for the backpropagation of each paths in this parallel structure, belong to the same gradient matrix
+ * @param pre_maxpl        the previous layer of maxpooling layer in this parallel block, since we need it to compute the gradient of maxpooling layer
+ */
+__global__ void bp_four_parallel(float* output_matrix, Layer* layer1, Layer* layer2, Layer* layer3, Layer* layer4, Layer* layer5, 
+																Layer* layer6, Layer* layer7, float* slice1, float* slice2, float* slice3, float* slice4, float* sum, float* pre_maxpl)
+{
+	const int pathNum = blockIdx.x;   // number of blocks of parent kernel should be 4
+
+	//decat<<<64,64>>>(input_matrix, layer1.d_preact, layer2.d_preact, layer3.d_preact, layer4.d_preact,
+	// 									input_layer.out_size, layer1.out_channel, layer2.out_channel, layer3.out_channel);
+	if (pathNum == 0){
+		bp_output_conv<<<64, 64>>>(layer1.d_output, layer1.weight, slice1, layer1.in_size, layer1.kernel_size, 
+																layer1.out_size, layer1.in_channel, layer1.out_channel, true, true);
+		bp_preact_conv<<<64, 64>>>(layer1.d_preact, layer1.d_output, layer1.preact, layer1.out_size, layer1.out_channel);
+		bp_weight_conv<<<64, 64>>>(layer1.d_weight, layer1.d_preact, layer1.output, layer1.kernel_size, layer1.in_size,
+																layer1.out_size, layer1.in_channel, layer1.out_channel, false);
+		bp_bias_conv<<<64, 64>>>(layer1.bias, layer1.d_preact, layer1.out_size, layer1.out_channel);
+	}
+	else if(pathNum == 1){
+		bp_output_conv<<<64, 64>>>(layer5.d_output, layer5.weight, slice2, layer5.in_size, layer5.kernel_size, 
+																layer5.out_size, layer5.in_channel, layer5.out_channel, true, true);
+		bp_preact_conv<<<64, 64>>>(layer5.d_preact, layer5.d_output, layer5.preact, layer5.out_size, layer5.out_channel);
+		bp_weight_conv<<<64, 64>>>(layer5.d_weight, layer5.d_preact, layer5.output, layer5.kernel_size, layer5.in_size,
+																layer5.out_size, layer5.in_channel, layer5.out_channel, false);
+		bp_bias_conv<<<64, 64>>>(layer5.bias, layer5.d_preact, layer5.out_size, layer5.out_channel);
+
+		bp_output_conv<<<64, 64>>>(layer2.d_output, layer2.weight, layer5.d_preact, layer2.in_size, layer2.kernel_size, 
+																layer2.out_size, layer2.in_channel, layer2.out_channel, true, true);
+		bp_preact_conv<<<64, 64>>>(layer2.d_preact, layer2.d_output, layer2.preact, layer2.out_size, layer2.out_channel);
+		bp_weight_conv<<<64, 64>>>(layer2.d_weight, layer2.d_preact, layer2.output, layer2.kernel_size, layer2.in_size,
+																layer2.out_size, layer2.in_channel, layer2.out_channel, false);
+		bp_bias_conv<<<64, 64>>>(layer2.bias, layer2.d_preact, layer2.out_size, layer2.out_channel);
+	}
+	else if(pathNum == 2){
+		bp_output_conv<<<64, 64>>>(layer6.d_output, layer6.weight, slice3, layer6.in_size, layer6.kernel_size, 
+																layer6.out_size, layer6.in_channel, layer6.out_channel, true, true);
+		bp_preact_conv<<<64, 64>>>(layer6.d_preact, layer6.d_output, layer6.preact, layer6.out_size, layer6.out_channel);
+		bp_weight_conv<<<64, 64>>>(layer6.d_weight, layer6.d_preact, layer6.output, layer6.kernel_size, layer6.in_size,
+																layer6.out_size, layer6.in_channel, layer6.out_channel, false);
+		bp_bias_conv<<<64, 64>>>(layer6.bias, layer6.d_preact, layer6.out_size, layer6.out_channel);
+
+		bp_output_conv<<<64, 64>>>(layer3.d_output, layer3.weight, layer6.d_preact, layer3.in_size, layer3.kernel_size, 
+																layer3.out_size, layer3.in_channel, layer3.out_channel, true, true);
+		bp_preact_conv<<<64, 64>>>(layer3.d_preact, layer3.d_output, layer3.preact, layer3.out_size, layer3.out_channel);
+		bp_weight_conv<<<64, 64>>>(layer3.d_weight, layer3.d_preact, layer3.output, layer3.kernel_size, layer3.in_size,
+																layer3.out_size, layer3.in_channel, layer3.out_channel, false);
+		bp_bias_conv<<<64, 64>>>(layer3.bias, layer3.d_preact, layer3.out_size, layer3.out_channel);
+	}
+	else{
+		bp_output_conv<<<64, 64>>>(layer7.d_output, layer7.weight, slice4, layer7.in_size, layer7.kernel_size, 
+																layer7.out_size, layer7.in_channel, layer7.out_channel, true, true);
+		bp_preact_conv<<<64, 64>>>(layer7.d_preact, layer7.d_output, layer7.preact, layer7.out_size, layer7.out_channel);
+		bp_weight_conv<<<64, 64>>>(layer7.d_weight, layer7.d_preact, layer7.output, layer7.kernel_size, layer7.in_size,
+																layer7.out_size, layer7.in_channel, layer7.out_channel, false);
+		bp_bias_conv<<<64, 64>>>(layer7.bias, layer7.d_preact, layer7.out_size, layer7.out_channel);
+
+		bp_maxpool<<<64, 64>>>(layer4.d_preact, layer4.output, pre_maxpl, layer7.d_output, layer4.kernel_size,
+														 layer4.in_size, layer4.out_size, layer4.out_channel, true);
+	}
+
+	cudadeviceSynchronize();
+	const int numElem = layer1.in_size * layer1.in_size * layer1.in_channel;
+	sumGrad<<<64,64>>>(output_matrix, layer1.d_preact, layer2.d_preact, layer3.d_preact, layer4.d_preact, numElem);
+}

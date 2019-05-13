@@ -14,7 +14,7 @@ static unsigned int train_cnt, test_cnt;
 static Layer l_input = Layer(0, 0, 28, 0, 1);
 static Layer l_conv1 = Layer(5, 28, 24, 1, 8);
 static Layer l_conv2 = Layer(1, 24, 24, 8, 16);
-static Layer l_maxpool = Layer(1, 24, 24, 16, 16);
+static Layer l_maxpool = Layer(1, 24, 24, 8, 16);
 static Layer l_FC = Layer(24, 24, 1, 16, 10);
 // static Layer l_input = Layer(0, 0, 28*28);
 // static Layer l_c1 = Layer(5*5, 6, 24*24*6);
@@ -179,11 +179,11 @@ static void learn()
 	while (iter < 0 || iter-- > 0) {
 		err = 0.0f;
 
-		for (int i = 0; i < 3000; ++i) {
+		for (int i = 0; i < 10000; ++i) {
 			float tmp_err;
-
-			time_taken += forward_pass(train_set[i].data);
-
+			int index = rand() % train_cnt;
+			time_taken += forward_pass(train_set[index].data);
+			
 			l_FC.bp_clear();
 			l_maxpool.bp_clear();
 			l_conv2.bp_clear();
@@ -191,7 +191,7 @@ static void learn()
 
 			// Euclid distance of train_set[i]
 			//l_FC.Out();
-			calcLoss<<<10, 1>>>(l_FC.d_preact, l_FC.output, train_set[i].label, 10);
+			calcLoss<<<10, 1>>>(l_FC.d_preact, l_FC.output, train_set[index].label, 10);
 			//l_FC.dOut();
 			//cudaMemcpy(fuck, l_FC.d_preact, sizeof(float) * 10, cudaMemcpyDeviceToHost);
 			//for(int i = 0; i < 10; i++){
@@ -204,7 +204,7 @@ static void learn()
 			time_taken += back_pass();
 		}
 		//printf("jfhgodsufg\n");
-		err /= 3000;
+		err /= 10000;
 		fprintf(stdout, "error: %e, time_on_gpu: %lf\n", err, time_taken);
 		//l_FC.Out();
 		if (err < threshold) {   // threshold
