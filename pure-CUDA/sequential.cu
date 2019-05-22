@@ -91,169 +91,163 @@ static double forward_pass(double data[28][28])
 	l_maxpool.clear();
 	l_FC.clear();
 
-	clock_t start, end;
-	start = clock();
 	// for (int i = 0; i < 18; i++){
 	// 	fprintf(stdout, "%f  ", input[i][i]);
 	// }
 	l_input.setOutput((float *)input);
 	//l_input.Out();
 	// Conv1
-	fp_conv<<<64, 64>>>(l_conv1.preact, l_input.output, l_conv1.weight, l_conv1.kernel_size, 
+	fp_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv1.preact, l_input.output, l_conv1.weight, l_conv1.kernel_size, 
 						l_conv1.in_size, l_conv1.out_size, l_conv1.in_channel, l_conv1.out_channel, false);
 	
-	fp_bias_conv<<<64, 64>>>(l_conv1.preact, l_conv1.bias, l_conv1.out_size, l_conv1.out_channel);
-	apply_step_function<<<64, 64>>>(l_conv1.preact, l_conv1.output, l_conv1.out_size * l_conv1.out_size * l_conv1.out_channel);
+	fp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv1.preact, l_conv1.bias, l_conv1.out_size, l_conv1.out_channel);
+	apply_step_function<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv1.preact, l_conv1.output, l_conv1.out_size * l_conv1.out_size * l_conv1.out_channel);
 	
 	
 	// Conv2  Path #1
-	fp_conv<<<64, 64>>>(l_conv2.preact, l_conv1.output, l_conv2.weight, l_conv2.kernel_size, 
+	fp_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv2.preact, l_conv1.output, l_conv2.weight, l_conv2.kernel_size, 
 		l_conv2.in_size, l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true);
-	fp_bias_conv<<<64, 64>>>(l_conv2.preact, l_conv2.bias, l_conv2.out_size, l_conv2.out_channel);
-	apply_step_function<<<64, 64>>>(l_conv2.preact, l_conv2.output, l_conv2.out_size * l_conv2.out_size * l_conv2.out_channel);
+	fp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv2.preact, l_conv2.bias, l_conv2.out_size, l_conv2.out_channel);
+	apply_step_function<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv2.preact, l_conv2.output, l_conv2.out_size * l_conv2.out_size * l_conv2.out_channel);
 
 	// Conv3 + Conv5 Path #2
-	fp_conv<<<64, 64>>>(l_conv3.preact, l_conv1.output, l_conv3.weight, l_conv3.kernel_size, 
+	fp_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv3.preact, l_conv1.output, l_conv3.weight, l_conv3.kernel_size, 
 		l_conv3.in_size, l_conv3.out_size, l_conv3.in_channel, l_conv3.out_channel, true);
-	fp_bias_conv<<<64, 64>>>(l_conv3.preact, l_conv3.bias, l_conv3.out_size, l_conv3.out_channel);
-	apply_step_function<<<64, 64>>>(l_conv3.preact, l_conv3.output, l_conv3.out_size * l_conv3.out_size * l_conv3.out_channel);
+	fp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv3.preact, l_conv3.bias, l_conv3.out_size, l_conv3.out_channel);
+	apply_step_function<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv3.preact, l_conv3.output, l_conv3.out_size * l_conv3.out_size * l_conv3.out_channel);
 	
-	fp_conv<<<64, 64>>>(l_conv5.preact, l_conv3.output, l_conv5.weight, l_conv5.kernel_size, 
+	fp_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv5.preact, l_conv3.output, l_conv5.weight, l_conv5.kernel_size, 
 		l_conv5.in_size, l_conv5.out_size, l_conv5.in_channel, l_conv5.out_channel, true);
-	fp_bias_conv<<<64, 64>>>(l_conv5.preact, l_conv5.bias, l_conv5.out_size, l_conv5.out_channel);
-	apply_step_function<<<64, 64>>>(l_conv5.preact, l_conv5.output, l_conv5.out_size * l_conv5.out_size * l_conv5.out_channel);
+	fp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv5.preact, l_conv5.bias, l_conv5.out_size, l_conv5.out_channel);
+	apply_step_function<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv5.preact, l_conv5.output, l_conv5.out_size * l_conv5.out_size * l_conv5.out_channel);
 
 	// Conv4 + Conv6 Path #3
-	fp_conv<<<64, 64>>>(l_conv4.preact, l_conv1.output, l_conv4.weight, l_conv4.kernel_size, 
+	fp_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv4.preact, l_conv1.output, l_conv4.weight, l_conv4.kernel_size, 
 		l_conv4.in_size, l_conv4.out_size, l_conv4.in_channel, l_conv4.out_channel, true);
-	fp_bias_conv<<<64, 64>>>(l_conv4.preact, l_conv4.bias, l_conv4.out_size, l_conv4.out_channel);
-	apply_step_function<<<64, 64>>>(l_conv4.preact, l_conv4.output, l_conv4.out_size * l_conv4.out_size * l_conv4.out_channel);
+	fp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv4.preact, l_conv4.bias, l_conv4.out_size, l_conv4.out_channel);
+	apply_step_function<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv4.preact, l_conv4.output, l_conv4.out_size * l_conv4.out_size * l_conv4.out_channel);
 
-	fp_conv<<<64, 64>>>(l_conv6.preact, l_conv4.output, l_conv6.weight, l_conv6.kernel_size, 
+	fp_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv6.preact, l_conv4.output, l_conv6.weight, l_conv6.kernel_size, 
 		l_conv6.in_size, l_conv6.out_size, l_conv6.in_channel, l_conv6.out_channel, true);
-	fp_bias_conv<<<64, 64>>>(l_conv6.preact, l_conv6.bias, l_conv6.out_size, l_conv6.out_channel);
-	apply_step_function<<<64, 64>>>(l_conv6.preact, l_conv6.output, l_conv6.out_size * l_conv6.out_size * l_conv6.out_channel);
+	fp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv6.preact, l_conv6.bias, l_conv6.out_size, l_conv6.out_channel);
+	apply_step_function<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv6.preact, l_conv6.output, l_conv6.out_size * l_conv6.out_size * l_conv6.out_channel);
 
 	// maxpooling + Conv7 Path #4
-	fp_maxpool<<<64, 64>>>(l_maxpool.output, l_conv1.output, l_maxpool.kernel_size, l_maxpool.in_size, l_maxpool.out_size, l_maxpool.out_channel, true);
+	fp_maxpool<<<GRID_SIZE, BLOCK_SIZE>>>(l_maxpool.output, l_conv1.output, l_maxpool.kernel_size, l_maxpool.in_size, l_maxpool.out_size, l_maxpool.out_channel, true);
 
-	fp_conv<<<64, 64>>>(l_conv7.preact, l_maxpool.output, l_conv7.weight, l_conv7.kernel_size, 
+	fp_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv7.preact, l_maxpool.output, l_conv7.weight, l_conv7.kernel_size, 
 		l_conv7.in_size, l_conv7.out_size, l_conv7.in_channel, l_conv7.out_channel, true);
-	fp_bias_conv<<<64, 64>>>(l_conv7.preact, l_conv7.bias, l_conv7.out_size, l_conv7.out_channel);
-	apply_step_function<<<64, 64>>>(l_conv7.preact, l_conv7.output, l_conv7.out_size * l_conv7.out_size * l_conv7.out_channel);
+	fp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv7.preact, l_conv7.bias, l_conv7.out_size, l_conv7.out_channel);
+	apply_step_function<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv7.preact, l_conv7.output, l_conv7.out_size * l_conv7.out_size * l_conv7.out_channel);
 
 	// concat
-	concat<<<64,64>>>(concat_matrix, l_conv2.output, l_conv5.output, l_conv6.output, l_conv7.output,
+	concat<<<GRID_SIZE,BLOCK_SIZE>>>(concat_matrix, l_conv2.output, l_conv5.output, l_conv6.output, l_conv7.output,
 		l_conv2.out_size, l_conv2.out_channel, l_conv5.out_channel, l_conv6.out_channel, l_conv7.out_channel);
 
 
 	// FC
-	fp_preact_fc<<<64, 64>>>(concat_matrix, l_FC.preact, l_FC.weight, l_FC.in_size, l_FC.in_channel, l_FC.out_channel);
-	fp_bias_fc<<<64, 64>>>(l_FC.preact, l_FC.bias, l_FC.out_channel);
-	apply_step_function<<<64, 64>>>(l_FC.preact, l_FC.output, l_FC.out_size * l_FC.out_size * l_FC.out_channel);
+	fp_preact_fc<<<GRID_SIZE, BLOCK_SIZE>>>(concat_matrix, l_FC.preact, l_FC.weight, l_FC.in_size, l_FC.in_channel, l_FC.out_channel);
+	fp_bias_fc<<<GRID_SIZE, BLOCK_SIZE>>>(l_FC.preact, l_FC.bias, l_FC.out_channel);
+	apply_step_function<<<GRID_SIZE, BLOCK_SIZE>>>(l_FC.preact, l_FC.output, l_FC.out_size * l_FC.out_size * l_FC.out_channel);
 	//l_FC.Out();
-	
-	end = clock();
-	return ((double) (end - start)) / CLOCKS_PER_SEC;
+
+	return 0;
 }
 
 // Back propagation to update weights
 static double back_pass()
 {
-	clock_t start, end;
-	start = clock();
 	// FC
-	bp_weight_fc<<<64, 64>>>(l_FC.d_weight, l_FC.d_preact, l_maxpool.output, l_FC.in_size, l_FC.in_channel, l_FC.out_channel);
-	bp_bias_fc<<<64, 64>>>(l_FC.bias, l_FC.d_preact, l_FC.out_channel);
-	bp_output_fc<<<64, 64>>>(l_FC.d_output, l_FC.d_preact, l_FC.weight, l_FC.in_size, l_FC.in_channel, l_FC.out_channel);
+	bp_weight_fc<<<GRID_SIZE, BLOCK_SIZE>>>(l_FC.d_weight, l_FC.d_preact, l_maxpool.output, l_FC.in_size, l_FC.in_channel, l_FC.out_channel);
+	bp_bias_fc<<<GRID_SIZE, BLOCK_SIZE>>>(l_FC.bias, l_FC.d_preact, l_FC.out_channel);
+	bp_output_fc<<<GRID_SIZE, BLOCK_SIZE>>>(l_FC.d_output, l_FC.d_preact, l_FC.weight, l_FC.in_size, l_FC.in_channel, l_FC.out_channel);
 	//l_FC.dOut();
 
 	// parallel block
 	//bp_four_parallel<<<4,1>>>(&sum_matrix, l_conv2, l_conv3, l_conv4, l_maxpool, l_conv5, l_conv6, l_conv7, &slice_1, &slice_2, &slice_3, &slice_4, l_conv1.output);
  
 	// decat
-	decat<<<64,64>>>(l_FC.d_output, &slice_1, &slice_2, &slice_3, &slice_4,
+	decat<<<GRID_SIZE,BLOCK_SIZE>>>(l_FC.d_output, &slice_1, &slice_2, &slice_3, &slice_4,
 										l_FC.in_size, l_conv2.out_channel, l_conv3.out_channel, l_conv4.out_channel, l_maxpool.out_channel);
 
 	// Conv2 Path #1
-	bp_output_conv<<<64, 64>>>(l_conv2.d_output, l_conv2.weight, &slice_1, l_conv2.in_size, l_conv2.kernel_size, 
+	bp_output_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv2.d_output, l_conv2.weight, &slice_1, l_conv2.in_size, l_conv2.kernel_size, 
 		l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true, true);
-	bp_preact_conv<<<64, 64>>>(l_conv2.d_preact, l_conv2.d_output, l_conv2.preact, l_conv2.out_size, l_conv2.out_channel);
-	bp_weight_conv<<<64, 64>>>(l_conv2.d_weight, l_conv2.d_preact, l_conv2.output, l_conv2.kernel_size, l_conv2.in_size,
+	bp_preact_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv2.d_preact, l_conv2.d_output, l_conv2.preact, l_conv2.out_size, l_conv2.out_channel);
+	bp_weight_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv2.d_weight, l_conv2.d_preact, l_conv2.output, l_conv2.kernel_size, l_conv2.in_size,
 		l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, false);
-	bp_bias_conv<<<64, 64>>>(l_conv2.bias, l_conv2.d_preact, l_conv2.out_size, l_conv2.out_channel);
+	bp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv2.bias, l_conv2.d_preact, l_conv2.out_size, l_conv2.out_channel);
 
 	// Conv3 + Conv5 Path #2
-	bp_output_conv<<<64, 64>>>(l_conv5.d_output, l_conv5.weight, &slice_2, l_conv5.in_size, l_conv5.kernel_size, 
+	bp_output_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv5.d_output, l_conv5.weight, &slice_2, l_conv5.in_size, l_conv5.kernel_size, 
 		l_conv5.out_size, l_conv5.in_channel, l_conv5.out_channel, true, true);
-	bp_preact_conv<<<64, 64>>>(l_conv5.d_preact, l_conv5.d_output, l_conv5.preact, l_conv5.out_size, l_conv5.out_channel);
-	bp_weight_conv<<<64, 64>>>(l_conv5.d_weight, l_conv5.d_preact, l_conv5.output, l_conv5.kernel_size, l_conv5.in_size,
+	bp_preact_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv5.d_preact, l_conv5.d_output, l_conv5.preact, l_conv5.out_size, l_conv5.out_channel);
+	bp_weight_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv5.d_weight, l_conv5.d_preact, l_conv5.output, l_conv5.kernel_size, l_conv5.in_size,
 		l_conv5.out_size, l_conv5.in_channel, l_conv5.out_channel, false);
-	bp_bias_conv<<<64, 64>>>(l_conv5.bias, l_conv5.d_preact, l_conv5.out_size, l_conv5.out_channel);
+	bp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv5.bias, l_conv5.d_preact, l_conv5.out_size, l_conv5.out_channel);
 
-	bp_output_conv<<<64, 64>>>(l_conv3.d_output, l_conv3.weight, l_conv5.d_preact, l_conv3.in_size, l_conv3.kernel_size, 
+	bp_output_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv3.d_output, l_conv3.weight, l_conv5.d_preact, l_conv3.in_size, l_conv3.kernel_size, 
 		l_conv3.out_size, l_conv3.in_channel, l_conv3.out_channel, true, true);
-	bp_preact_conv<<<64, 64>>>(l_conv3.d_preact, l_conv3.d_output, l_conv3.preact, l_conv3.out_size, l_conv3.out_channel);
-	bp_weight_conv<<<64, 64>>>(l_conv3.d_weight, l_conv3.d_preact, l_conv3.output, l_conv3.kernel_size, l_conv3.in_size,
+	bp_preact_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv3.d_preact, l_conv3.d_output, l_conv3.preact, l_conv3.out_size, l_conv3.out_channel);
+	bp_weight_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv3.d_weight, l_conv3.d_preact, l_conv3.output, l_conv3.kernel_size, l_conv3.in_size,
 		l_conv3.out_size, l_conv3.in_channel, l_conv3.out_channel, false);
-	bp_bias_conv<<<64, 64>>>(l_conv3.bias, l_conv3.d_preact, l_conv3.out_size, l_conv3.out_channel);
+	bp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv3.bias, l_conv3.d_preact, l_conv3.out_size, l_conv3.out_channel);
 
 	// Conv4 + Conv6 Path #3
-	bp_output_conv<<<64, 64>>>(l_conv6.d_output, l_conv6.weight, &slice_3, l_conv6.in_size, l_conv6.kernel_size, 
+	bp_output_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv6.d_output, l_conv6.weight, &slice_3, l_conv6.in_size, l_conv6.kernel_size, 
 		l_conv6.out_size, l_conv6.in_channel, l_conv6.out_channel, true, true);
-	bp_preact_conv<<<64, 64>>>(l_conv6.d_preact, l_conv6.d_output, l_conv6.preact, l_conv6.out_size, l_conv6.out_channel);
-	bp_weight_conv<<<64, 64>>>(l_conv6.d_weight, l_conv6.d_preact, l_conv6.output, l_conv6.kernel_size, l_conv6.in_size,
+	bp_preact_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv6.d_preact, l_conv6.d_output, l_conv6.preact, l_conv6.out_size, l_conv6.out_channel);
+	bp_weight_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv6.d_weight, l_conv6.d_preact, l_conv6.output, l_conv6.kernel_size, l_conv6.in_size,
 		l_conv6.out_size, l_conv6.in_channel, l_conv6.out_channel, false);
-	bp_bias_conv<<<64, 64>>>(l_conv6.bias, l_conv6.d_preact, l_conv6.out_size, l_conv6.out_channel);
+	bp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv6.bias, l_conv6.d_preact, l_conv6.out_size, l_conv6.out_channel);
 
-	bp_output_conv<<<64, 64>>>(l_conv4.d_output, l_conv4.weight, l_conv6.d_preact, l_conv4.in_size, l_conv4.kernel_size, 
+	bp_output_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv4.d_output, l_conv4.weight, l_conv6.d_preact, l_conv4.in_size, l_conv4.kernel_size, 
 		l_conv4.out_size, l_conv4.in_channel, l_conv4.out_channel, true, true);
-	bp_preact_conv<<<64, 64>>>(l_conv4.d_preact, l_conv4.d_output, l_conv4.preact, l_conv4.out_size, l_conv4.out_channel);
-	bp_weight_conv<<<64, 64>>>(l_conv4.d_weight, l_conv4.d_preact, l_conv4.output, l_conv4.kernel_size, l_conv4.in_size,
+	bp_preact_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv4.d_preact, l_conv4.d_output, l_conv4.preact, l_conv4.out_size, l_conv4.out_channel);
+	bp_weight_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv4.d_weight, l_conv4.d_preact, l_conv4.output, l_conv4.kernel_size, l_conv4.in_size,
 		l_conv4.out_size, l_conv4.in_channel, l_conv4.out_channel, false);
-	bp_bias_conv<<<64, 64>>>(l_conv4.bias, l_conv4.d_preact, l_conv4.out_size, l_conv4.out_channel);
+	bp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv4.bias, l_conv4.d_preact, l_conv4.out_size, l_conv4.out_channel);
 
 	// maxpooling + Conv7 Path #4
-	bp_output_conv<<<64, 64>>>(l_conv7.d_output, l_conv7.weight, &slice_4, l_conv7.in_size, l_conv7.kernel_size, 
+	bp_output_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv7.d_output, l_conv7.weight, &slice_4, l_conv7.in_size, l_conv7.kernel_size, 
 		l_conv7.out_size, l_conv7.in_channel, l_conv7.out_channel, true, true);
-	bp_preact_conv<<<64, 64>>>(l_conv7.d_preact, l_conv7.d_output, l_conv7.preact, l_conv7.out_size, l_conv7.out_channel);
-	bp_weight_conv<<<64, 64>>>(l_conv7.d_weight, l_conv7.d_preact, l_conv7.output, l_conv7.kernel_size, l_conv7.in_size,
+	bp_preact_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv7.d_preact, l_conv7.d_output, l_conv7.preact, l_conv7.out_size, l_conv7.out_channel);
+	bp_weight_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv7.d_weight, l_conv7.d_preact, l_conv7.output, l_conv7.kernel_size, l_conv7.in_size,
 		l_conv7.out_size, l_conv7.in_channel, l_conv7.out_channel, false);
-	bp_bias_conv<<<64, 64>>>(l_conv7.bias, l_conv7.d_preact, l_conv7.out_size, l_conv7.out_channel);
+	bp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv7.bias, l_conv7.d_preact, l_conv7.out_size, l_conv7.out_channel);
 
-	bp_maxpool<<<64, 64>>>(l_maxpool.d_preact, l_maxpool.output, l_conv1.output, l_conv7.d_output, l_maxpool.kernel_size,
+	bp_maxpool<<<GRID_SIZE, BLOCK_SIZE>>>(l_maxpool.d_preact, l_maxpool.output, l_conv1.output, l_conv7.d_output, l_maxpool.kernel_size,
  		l_maxpool.in_size, l_maxpool.out_size, l_maxpool.out_channel, true);
 
 
 	// calculate gradient for conv1
 	int numElem = l_conv2.in_size * l_conv2.in_size * l_conv2.in_channel;
-	sumGrad<<<64,64>>>(&sum_matrix, l_conv2.d_preact, l_conv3.d_preact, l_conv4.d_preact, l_maxpool.d_preact, numElem);
+	sumGrad<<<GRID_SIZE,BLOCK_SIZE>>>(&sum_matrix, l_conv2.d_preact, l_conv3.d_preact, l_conv4.d_preact, l_maxpool.d_preact, numElem);
 
 	// Conv1
-	//bp_output_conv<<<64, 64>>>(l_conv1.d_output, l_conv1.weight, l_conv2.d_preact, l_conv1.in_size, l_conv2.kernel_size, 
-	bp_output_conv<<<64, 64>>>(l_conv1.d_output, l_conv1.weight, &sum_matrix, l_conv1.in_size, l_conv2.kernel_size, 
+	//bp_output_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv1.d_output, l_conv1.weight, l_conv2.d_preact, l_conv1.in_size, l_conv2.kernel_size, 
+	bp_output_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv1.d_output, l_conv1.weight, &sum_matrix, l_conv1.in_size, l_conv2.kernel_size, 
 								l_conv2.out_size, l_conv2.in_channel, l_conv2.out_channel, true, true);
-	bp_preact_conv<<<64, 64>>>(l_conv1.d_preact, l_conv1.d_output, l_conv1.preact, l_conv1.out_size, l_conv1.out_channel);
-	bp_weight_conv<<<64, 64>>>(l_conv1.d_weight, l_conv1.d_preact, l_conv1.output, l_conv1.kernel_size, l_conv1.in_size,
+	bp_preact_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv1.d_preact, l_conv1.d_output, l_conv1.preact, l_conv1.out_size, l_conv1.out_channel);
+	bp_weight_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv1.d_weight, l_conv1.d_preact, l_conv1.output, l_conv1.kernel_size, l_conv1.in_size,
 		l_conv1.out_size, l_conv1.in_channel, l_conv1.out_channel, false);
-	bp_bias_conv<<<64, 64>>>(l_conv1.bias, l_conv1.d_preact, l_conv1.out_size, l_conv1.out_channel);
+	bp_bias_conv<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv1.bias, l_conv1.d_preact, l_conv1.out_size, l_conv1.out_channel);
 	//l_conv1.dOut();
 	
 	
 
 
 
-	apply_grad<<<64, 64>>>(l_FC.weight, l_FC.d_weight, l_FC.M * l_FC.N);
-	apply_grad<<<64, 64>>>(l_conv1.weight, l_conv1.d_weight, l_conv1.M * l_conv1.N);
-	apply_grad<<<64, 64>>>(l_conv2.weight, l_conv2.d_weight, l_conv2.M * l_conv2.N);
-	apply_grad<<<64, 64>>>(l_conv3.weight, l_conv3.d_weight, l_conv3.M * l_conv3.N);
-	apply_grad<<<64, 64>>>(l_conv4.weight, l_conv4.d_weight, l_conv4.M * l_conv4.N);
-	apply_grad<<<64, 64>>>(l_conv5.weight, l_conv5.d_weight, l_conv5.M * l_conv5.N);
-	apply_grad<<<64, 64>>>(l_conv6.weight, l_conv6.d_weight, l_conv6.M * l_conv6.N);
-	apply_grad<<<64, 64>>>(l_conv7.weight, l_conv7.d_weight, l_conv7.M * l_conv7.N);
+	apply_grad<<<GRID_SIZE, BLOCK_SIZE>>>(l_FC.weight, l_FC.d_weight, l_FC.M * l_FC.N);
+	apply_grad<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv1.weight, l_conv1.d_weight, l_conv1.M * l_conv1.N);
+	apply_grad<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv2.weight, l_conv2.d_weight, l_conv2.M * l_conv2.N);
+	apply_grad<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv3.weight, l_conv3.d_weight, l_conv3.M * l_conv3.N);
+	apply_grad<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv4.weight, l_conv4.d_weight, l_conv4.M * l_conv4.N);
+	apply_grad<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv5.weight, l_conv5.d_weight, l_conv5.M * l_conv5.N);
+	apply_grad<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv6.weight, l_conv6.d_weight, l_conv6.M * l_conv6.N);
+	apply_grad<<<GRID_SIZE, BLOCK_SIZE>>>(l_conv7.weight, l_conv7.d_weight, l_conv7.M * l_conv7.N);
 
-	end = clock();
-	return ((double) (end - start)) / CLOCKS_PER_SEC;
+	return 0;
 }
 
 // Unfold the input layer
@@ -276,9 +270,9 @@ static void learn()
 {
 	static cublasHandle_t blas;
 	cublasCreate(&blas);
-
+	clock_t start, end;
 	float err;
-	int iter = 1000;
+	int iter = ITERATION;
 	
 	double time_taken = 0.0;
 
@@ -286,8 +280,8 @@ static void learn()
 
 	while (iter < 0 || iter-- > 0) {
 		err = 0.0f;
-
-		for (int i = 0; i < 4; ++i) {
+		start = clock();
+		for (int i = 0; i < BATCH_SIZE; ++i) {
 			float tmp_err;
 			int index = rand() % train_cnt;
 			time_taken += forward_pass(train_set[index].data);
@@ -305,21 +299,17 @@ static void learn()
 			// Euclid distance of train_set[i]
 			//l_FC.Out();
 			calcLoss<<<10, 1>>>(l_FC.d_preact, l_FC.output, train_set[index].label, 10);
-			//l_FC.dOut();
-			//cudaMemcpy(fuck, l_FC.d_preact, sizeof(float) * 10, cudaMemcpyDeviceToHost);
-			//for(int i = 0; i < 10; i++){
-			// 	fprintf(stdout, " %f ", fuck[i]);
-			// }                        
-			// fprintf(stdout, "\n");
 			cublasSnrm2(blas, 10, l_FC.d_preact, 1, &tmp_err);
 			err += tmp_err;
 
 			time_taken += back_pass();
 		}
 		//printf("jfhgodsufg\n");
-		err /= 4;
-		fprintf(stdout, "error: %e, time_on_gpu: %lf\n", err, time_taken);
-		//l_FC.Out();
+		err /= BATCH_SIZE;
+		end = clock();
+        time_taken += ((double)end - start) / CLOCKS_PER_SEC;
+		fprintf(stdout, "training loss: %e, time_on_gpu: %lf\n", err, time_taken);
+
 		if (err < 0) {   // threshold
 			fprintf(stdout, "Training complete, error less than threshold\n\n");
 			break;
@@ -328,6 +318,7 @@ static void learn()
 	}
 	
 	fprintf(stdout, "\n Time - %lf\n", time_taken);
+	fprintf(stdout, "\nAverage FPS - %lf\n", (ITERATION * BATCH_SIZE) / time_taken);
 }
 
 
@@ -362,6 +353,6 @@ static void test()
 		}
 	}
 
-	fprintf(stdout, "Error Rate: %.2lf%%\n",
+	fprintf(stdout, "Test Error Rate: %.2lf%%\n",
 		double(error) / double(test_cnt) * 100.0);
 }
