@@ -10,7 +10,6 @@
 static mnist_data *train_set, *test_set;
 static unsigned int train_cnt, test_cnt;
 
-
 // Define layers of CNN
 static Layer l_input = Layer(0, 0, 28, 0, 1);
 static Layer l_conv1 = Layer(3, 28, 24, 1, 8);
@@ -300,7 +299,6 @@ static void learn()
 			// Euclid distance of train_set[i]
 			//l_FC.Out();
 			calcLoss<<<10, 1>>>(l_FC.d_preact, l_FC.output, train_set[index].label, 10);
-
 			cublasSnrm2(blas, 10, l_FC.d_preact, 1, &tmp_err);
 			err += tmp_err;
 

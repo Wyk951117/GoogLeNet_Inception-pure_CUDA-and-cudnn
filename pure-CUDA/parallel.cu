@@ -205,7 +205,6 @@ static void learn()
 			// Euclid distance of train_set[i]
 			//l_FC.Out();
 			calcLoss<<<10, 1>>>(l_FC.d_preact, l_FC.output, train_set[index].label, 10);
-
 			cublasSnrm2(blas, 10, l_FC.d_preact, 1, &tmp_err);
 			err += tmp_err;
 
