@@ -16,6 +16,7 @@ Layer::Layer(int kernel_size, int in_size, int out_size, int in_channel, int out
 	this->N = in_channel * out_channel;
 	this->M = kernel_size * kernel_size * out_size * out_size;
 	this->O = out_channel * out_size * out_size;
+	this->P = in_channel * in_size * in_size;
 
 	// host memory allocation
 	this->h_bias = (float *)malloc(sizeof(float) * N);
@@ -41,8 +42,8 @@ Layer::Layer(int kernel_size, int in_size, int out_size, int in_channel, int out
 
 	cudaMalloc(&weight, sizeof(float) * M * N); // all element position corresponds to a weight
 
-	cudaMalloc(&d_output, sizeof(float) * O);
-	cudaMalloc(&d_preact, sizeof(float) * O);
+	cudaMalloc(&d_output, sizeof(float) * P);  // O -> P
+	cudaMalloc(&d_preact, sizeof(float) * P);  // O -> P
 	cudaMalloc(&d_weight, sizeof(float) * M * N);
 
 	cudaMemcpy(bias, h_bias, sizeof(float) * N, cudaMemcpyHostToDevice);
@@ -100,8 +101,8 @@ void Layer::clear()
 
 void Layer::bp_clear()
 {
-	cudaMemset(d_output, 0x00, sizeof(float) * O);
-	cudaMemset(d_preact, 0x00, sizeof(float) * O);
+	cudaMemset(d_output, 0x00, sizeof(float) * P);
+	cudaMemset(d_preact, 0x00, sizeof(float) * P);
 	cudaMemset(d_weight, 0x00, sizeof(float) * M * N);
 }
 
@@ -119,7 +120,7 @@ __device__ float step_function(float v)
  * function: apply step function to input matrices to produce output, N represents number of elements of both input and output
  * @param N     total number of elements in both input and output
  */
-__global__ void apply_step_function(float *input, float *output, const int N)
+__global__ void apply_step_function(float *output, float *input, const int N)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int totalPos = blockDim.x * gridDim.x;
@@ -292,6 +293,39 @@ __global__ void fp_bias_conv(float* preact, float* bias, const int size, const i
 	}
 }
 
+__global__ void fp_maxpool(float* output, float* input, const int kernel_size, const int size, const int n_size, const int in_channel, bool SAME)
+{
+	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
+	const int totalPos = blockDim.x * gridDim.x;
+	const int N = kernel_size * kernel_size * n_size * n_size * in_channel;  // total number of connections in this convolution
+	const int padding = (kernel_size - 1) / 2;  // number of padding for both ends
+	int input_row, input_col;
+	// distribute certain number of connections to each thread regardless of detailed position and shape
+	for(int n = N * pos / totalPos; n < N * (pos+1) / totalPos; n++){
+		int idx = n;
+		const int i_kernel_row = ((idx /= 1	) % kernel_size);  
+		const int i_kernel_col = ((idx /= kernel_size	) % kernel_size);
+		const int i_channel = ((idx /= kernel_size	) % in_channel);
+		const int i_row = ((idx /= in_channel	) % n_size);
+		const int i_col = ((idx /= n_size	) % n_size);
+    float maxidx = (float)-100;
+		// corresponding position of the input matrix and size of output matrix
+		if (SAME){ // SAME padding scheme implemented
+			input_row = i_kernel_row + i_row - padding;
+			input_col = i_kernel_col + i_col - padding;
+		}
+		else{
+			input_row = i_kernel_row + i_row;
+			input_col = i_kernel_col + i_col;
+		}
+		if(input_row >= 0 && input_row < size && input_col >=0 && input_col < size){
+			  if (input[((i_channel % in_channel) * size + input_col) * size + input_row] > maxidx)
+            output[((i_channel % in_channel) * n_size + i_col) * n_size + i_row] = input[((i_channel % in_channel) * size + input_col) * size + input_row];
+		}
+	}
+}
+
+
 /**name:fp_preact_fc
  * function: matrix multiplication part for full connected layer
  * @param input        input matrix
@@ -301,7 +335,7 @@ __global__ void fp_bias_conv(float* preact, float* bias, const int size, const i
  * @param in_channel   nubmer of channels of input feature matrix
  * @param out_channel  number of channels of output feature matrix (1 * 1 * out_channel)
  */
-__global__ void fp_preact_fc(float* input, float* preact, float* weight,
+__global__ void fp_preact_fc(float* preact, float* input, float* weight,
 							const int size, const int in_channel, const int out_channel)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
@@ -384,6 +418,64 @@ __global__ void bp_bias_fc(float *bias, float *d_preact, const int n_channel)
 	}
 }
 
+__global__ void bp_output_fc(float *d_output, float *d_preact, float *weight, const int size, const int in_channel, const int out_channel)
+{
+	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
+	const int totalPos = blockDim.x * gridDim.x;
+
+	const int N = out_channel * in_channel * size * size;
+	const int weight_channel = out_channel * in_channel;
+
+	for (int n = N * pos / totalPos; n < N * (pos+1) / totalPos; ++n) {
+		int idx = n;
+		const int i_channel = ((idx /= 1) % weight_channel);
+		const int i_row = ((idx /= weight_channel	) % size);
+		const int i_col = ((idx /= size	) % size);
+
+		atomicAdd(&d_output[((i_channel % in_channel) * size + i_col) * size + i_row], d_preact[i_channel % out_channel] * weight[(i_channel * size + i_col) * size + i_row]);
+	}
+}
+
+
+__global__ void bp_maxpool(float* d_preact, float* preact, float* p_output, float* nd_output, const int kernel_size, const int size, const int n_size, const int in_channel, bool SAME)
+{
+	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
+	const int totalPos = blockDim.x * gridDim.x;
+	const int N = kernel_size * kernel_size * n_size * n_size * in_channel;  // total number of connections in this convolution
+	const int padding = (kernel_size - 1) / 2;  // number of padding for both ends
+	int input_row, input_col;
+
+	// distribute certain number of connections to each thread regardless of detailed position and shape
+	for(int n = N * pos / totalPos; n < N * (pos+1) / totalPos; n++){
+		int idx = n;
+		const int i_kernel_row = ((idx /= 1	) % kernel_size);  
+		const int i_kernel_col = ((idx /= kernel_size	) % kernel_size);
+		const int i_channel = ((idx /= kernel_size	) % in_channel);
+		const int i_row = ((idx /= in_channel	) % n_size);
+		const int i_col = ((idx /= n_size	) % n_size);
+    float maxidx = (float)-1;
+    int id = 0;
+		// corresponding position of the input matrix
+		if (SAME){ // SAME padding scheme implemented
+			input_row = i_kernel_row + i_row - padding;
+			input_col = i_kernel_col + i_col - padding;
+		}
+		else{
+			input_row = i_kernel_row + i_row;
+			input_col = i_kernel_col + i_col;
+		}
+		if(input_row >= 0 && input_row < size && input_col >=0 && input_col < size){
+			  if (p_output[((i_channel % in_channel) * size + input_col) * size + input_row] > maxidx)
+          {
+            maxidx = p_output[((i_channel % in_channel) * size + input_col) * size + input_row] ;
+            id = ((i_channel % in_channel) * size + input_col) * size + input_row;
+          }
+		}
+    d_preact[id] = nd_output[((i_channel % in_channel) * n_size + i_col) * n_size + i_row];  
+	}
+}
+
+
 /**name: bp_output_conv
  * function: backward pass for convolution layer, get the gradient of each element of output from the gradient of next layer
  * @param d_output         gradient of output data matrix of convolution operation
@@ -397,53 +489,9 @@ __global__ void bp_bias_fc(float *bias, float *d_preact, const int n_channel)
  * @param CONV             boolean indcating whether the next layer is a convolution layer
  * @Param SAME             boolean indicating whether "SAME" padding was used during forward pass of next layer
  */
-// __global__ void bp_output_conv(float *d_output, float *n_weight, float *nd_preact, const int size,
-// 							const int kernel_size, const int n_size, const int in_channel, const int out_channel, bool CONV, bool SAME)
-// {
-// 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-// 	const int totalPos = blockDim.x * gridDim.x;
-
-// 	const int N = kernel_size * kernel_size * n_size * n_size * in_channel * out_channel;
-// 	const int weight_channel = out_channel * in_channel;
-// 	const int padding = (kernel_size - 1) / 2;   // must be int
-// 	int input_row, input_col;
-
-// 	for (int n = N * pos / totalPos; n < N * (pos+1) / totalPos; ++n) { 
-// 		int idx = n;
-// 		if (CONV){   // the next layer is convolution or maxpooling
-// 			const int i_channel = ((idx /= 1	) % weight_channel);
-// 			const int i_kernel_row = ((idx /= weight_channel) % kernel_size); 
-// 			const int i_kernel_col = ((idx /= kernel_size) % kernel_size);
-// 			const int i_row = ((idx /= kernel_size	) % n_size);
-// 			const int i_col = ((idx /= n_size) % n_size);
-			
-// 			if(SAME){     // with padding situation
-// 				input_row = i_row + i_kernel_row - padding;
-// 				input_col = i_col + i_kernel_col - padding;
-// 			}
-// 			else{
-// 				input_row = i_row + i_kernel_row;
-// 				input_col = i_col + i_kernel_col;
-// 			}
-// 			if(input_row >= 0 && input_row < size && input_col >=0 && input_col < size){
-// 				atomicAdd(&d_output[((i_channel % in_channel) * size + input_col) * size + input_row], 
-// 							n_weight[(i_channel * kernel_size + i_kernel_col) * kernel_size + i_kernel_row] 
-// 							* nd_preact[((i_channel % out_channel) * n_size + i_col) * n_size + i_row]);
-// 			}
-// 		}
-// 		else{
-// 			const int i_channel = ((idx /= 1) % weight_channel);
-// 			const int i_row = ((idx /= weight_channel) % size);
-// 			const int i_col = ((idx /= size	) % size);
-	
-// 			atomicAdd(&d_output[((i_channel % in_channel) * size + i_col) * size + i_row], 
-// 			nd_preact[i_channel % out_channel] * n_weight[(i_channel * size + i_col) * size + i_row]);
-	
-// 		}
-// 	}
-// }
+ 
 __global__ void bp_output_conv(float *d_output, float *weight, float *nd_preact, const int size,
-	const int kernel_size, const int n_size, const int in_channel, const int out_channel, bool CONV, bool SAME)
+	const int kernel_size, const int n_size, const int in_channel, const int out_channel, bool SAME)
 {
 	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
 	const int totalPos = blockDim.x * gridDim.x;
@@ -456,10 +504,11 @@ __global__ void bp_output_conv(float *d_output, float *weight, float *nd_preact,
 		int idx = n;
 		int bpinput_row;
 		int bpinput_col;
-		const int i_channel = ((idx /= 1	) % weight_channel);
-		const int i_kernel_row = ((idx /= weight_channel) % kernel_size); 
+
+		const int i_kernel_row = ((idx /= 1) % kernel_size); 
 		const int i_kernel_col = ((idx /= kernel_size) % kernel_size);
-		const int i_row = ((idx /= kernel_size	) % size);
+		const int i_channel = ((idx /= kernel_size	) % weight_channel);
+		const int i_row = ((idx /= weight_channel	) % size);
 		const int i_col = ((idx /= size) % size);   
 
 		if (SAME){ // SAME padding scheme implemented
@@ -477,7 +526,9 @@ __global__ void bp_output_conv(float *d_output, float *weight, float *nd_preact,
 				* nd_preact[((i_channel % out_channel) * n_size + bpinput_col) * n_size + bpinput_row]);
 		}   
 	}  
-} 
+}
+
+
 /**name:bp_preact_conv
  * function: compute the gradient of current layer for update of weights and bias
  * @param d_preact  gradient of current layer
@@ -504,7 +555,7 @@ __global__ void bp_preact_conv(float *d_preact, float *d_output, float *preact, 
 		//d_preact[(i_channel * size + i_col) * size + i_row] = d_output[(i_channel * size + i_col) * size + i_row] * o * (1 - o);
 		d_preact[(i_channel * size + i_col) * size + i_row] = d_output[(i_channel * size + i_col) * size + i_row] * o;
 
-	}
+	}  
 }
 /**name: bp_weight_conv
  * function: get the gradient of weight of convolution layer
@@ -546,6 +597,7 @@ __global__ void bp_weight_conv(float* d_weight, float* d_preact, float* p_output
 			input_row = i_kernel_row + i_row;
 			input_col = i_kernel_col + i_col;
 		}
+		
 		if(input_row >= 0 && input_row < size && input_col >=0 && input_col < size){
 			atomicAdd(&d_weight[(i_channel * kernel_size + i_kernel_col) * kernel_size + i_kernel_row], 
 						d_preact[((i_channel % out_channel) * n_size + i_col) * n_size + i_row] * p_output[((i_channel % in_channel) * size + input_col) + input_row]);
@@ -580,94 +632,7 @@ __global__ void bp_bias_conv(float *bias, float *d_preact, const int size, const
 
 
 
-__global__ void fp_maxpool(float* output, float* input, const int kernel_size, const int size, const int n_size, const int in_channel, bool SAME)
-{
-	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int totalPos = blockDim.x * gridDim.x;
-	const int N = kernel_size * kernel_size * n_size * n_size * in_channel;  // total number of connections in this convolution
-	const int padding = (kernel_size - 1) / 2;  // number of padding for both ends
-	int input_row, input_col;
-	// distribute certain number of connections to each thread regardless of detailed position and shape
-	for(int n = N * pos / totalPos; n < N * (pos+1) / totalPos; n++){
-		int idx = n;
-		const int i_kernel_row = ((idx /= 1	) % kernel_size);  
-		const int i_kernel_col = ((idx /= kernel_size	) % kernel_size);
-		const int i_channel = ((idx /= kernel_size	) % in_channel);
-		const int i_row = ((idx /= in_channel	) % n_size);
-		const int i_col = ((idx /= n_size	) % n_size);
-    float maxidx = (float)-100;
-		// corresponding position of the input matrix and size of output matrix
-		if (SAME){ // SAME padding scheme implemented
-			input_row = i_kernel_row + i_row - padding;
-			input_col = i_kernel_col + i_col - padding;
-		}
-		else{
-			input_row = i_kernel_row + i_row;
-			input_col = i_kernel_col + i_col;
-		}
-		if(input_row >= 0 && input_row < size && input_col >=0 && input_col < size){
-			  if (input[((i_channel % in_channel) * size + input_col) * size + input_row] > maxidx)
-            output[((i_channel % in_channel) * n_size + i_col) * n_size + i_row] = input[((i_channel % in_channel) * size + input_col) * size + input_row];
-		}
-	}
-}
 
 
-__global__ void bp_maxpool(float* d_preact, float* preact, float* p_output, float* nd_output, const int kernel_size, const int size, const int n_size, const int in_channel, bool SAME)
-{
-	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int totalPos = blockDim.x * gridDim.x;
-	const int N = kernel_size * kernel_size * n_size * n_size * in_channel;  // total number of connections in this convolution
-	const int padding = (kernel_size - 1) / 2;  // number of padding for both ends
-	int input_row, input_col;
 
-	// distribute certain number of connections to each thread regardless of detailed position and shape
-	for(int n = N * pos / totalPos; n < N * (pos+1) / totalPos; n++){
-		int idx = n;
-		const int i_kernel_row = ((idx /= 1	) % kernel_size);  
-		const int i_kernel_col = ((idx /= kernel_size	) % kernel_size);
-		const int i_channel = ((idx /= kernel_size	) % in_channel);
-		const int i_row = ((idx /= in_channel	) % n_size);
-		const int i_col = ((idx /= n_size	) % n_size);
-    float maxidx = (float)-1;
-    idx = 0;
-		// corresponding position of the input matrix
-		if (SAME){ // SAME padding scheme implemented
-			input_row = i_kernel_row + i_row - padding;
-			input_col = i_kernel_col + i_col - padding;
-		}
-		else{
-			input_row = i_kernel_row + i_row;
-			input_col = i_kernel_col + i_col;
-		}
-		if(input_row >= 0 && input_row < size && input_col >=0 && input_col < size){
-			  if (p_output[((i_channel % in_channel) * size + input_col) * size + input_row] > maxidx)
-          {
-            maxidx = p_output[((i_channel % in_channel) * size + input_col) * size + input_row] ;
-            idx = ((i_channel % in_channel) * size + input_col) * size + input_row;
-          }
-		}
-    d_preact[idx] = nd_output[((i_channel % in_channel) * n_size + i_col) * n_size + i_row];  
-	}
-}
-
-
-__global__ void bp_output_fc(float *d_output, float *d_preact, float *weight, const int size, const int in_channel, const int out_channel)
-{
-	const int pos = blockIdx.x * blockDim.x + threadIdx.x;
-	const int totalPos = blockDim.x * gridDim.x;
-
-	const int N = out_channel * in_channel * size * size;
-	const int weight_channel = out_channel * in_channel;
-
-	for (int n = N * pos / totalPos; n < N * (pos+1) / totalPos; ++n) {
-		int idx = n;
-		const int i_channel = ((idx /= 1	) % weight_channel);
-		const int i_row = ((idx /= weight_channel	) % size);
-		const int i_col = ((idx /= size	) % size);
-
-		atomicAdd(&d_output[((i_channel % in_channel) * size + i_col) * size + i_row], d_preact[i_channel % out_channel] * weight[(i_channel * size + i_col) * size + i_row]);
-	}
-}
-
-
+ 

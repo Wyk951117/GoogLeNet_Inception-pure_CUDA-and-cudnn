@@ -42,7 +42,7 @@ class Layer {
     void Out();
 	void dOut();
 };
-
+ 
 
 // Utility CUDA kernel functions
 __device__ float step_function(float v);
@@ -63,7 +63,7 @@ __global__ void fp_four_parallel(float* output_matrix, Layer& layer1, Layer& lay
 __global__ void decat(float* input, float* output1, float* output2, float* output3, float* output4, const int size, const int out_channel1, const int out_channel2, const int out_channel3, const int out_channel4);
 __global__ void bp_weight_fc(float *d_weight, float *d_preact, float *p_output, const int size, const int in_channel, const int out_channel);
 __global__ void bp_bias_fc(float *bias, float *d_preact, const int n_channel);
-__global__ void bp_output_conv(float *d_output, float *weight, float *nd_preact, const int size, const int kernel_size, const int n_size, const int in_channel, const int out_channel, bool CONV, bool SAME);
+__global__ void bp_output_conv(float *d_output, float *weight, float *nd_preact, const int size, const int kernel_size, const int n_size, const int in_channel, const int out_channel, bool SAME);
 __global__ void bp_preact_conv(float *d_preact, float *d_output, float *preact, const int size, const int n_channel);
 __global__ void bp_weight_conv(float* d_weight, float* d_preact, float* p_output, const int kernel_size, const int size, const int n_size, const int in_channel, const int out_channel, bool SAME);
 __global__ void bp_bias_conv(float *bias, float *d_preact, const int size, const int n_channel); 
