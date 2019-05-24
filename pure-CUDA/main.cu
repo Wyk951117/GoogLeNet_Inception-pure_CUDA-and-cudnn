@@ -148,21 +148,21 @@ static double back_pass()
 	return ((double) (end - start)) / CLOCKS_PER_SEC;
 }
 
-// Unfold the input layer
-static void unfold_input(double input[28][28], double unfolded[24*24][5*5])
-{
-	int a = 0;
-	(void)unfold_input;
+// Unfold the input layer  (not implemented)
+// static void unfold_input(double input[28][28], double unfolded[24*24][5*5])
+// {
+// 	int a = 0;
+// 	(void)unfold_input;
 
-	for (int i = 0; i < 2; ++i)
-		for (int j = 0; j < 2; ++j) {
-			int b = 0;
-			for (int x = i; x < i + 2; ++x)
-				for (int y = j; y < j+2; ++y)
-					unfolded[a][b++] = input[x][y];
-			a++;
-		}
-}
+// 	for (int i = 0; i < 2; ++i)
+// 		for (int j = 0; j < 2; ++j) {
+// 			int b = 0;
+// 			for (int x = i; x < i + 2; ++x)
+// 				for (int y = j; y < j+2; ++y)
+// 					unfolded[a][b++] = input[x][y];
+// 			a++;
+// 		}
+// }
 
 static void learn()
 {

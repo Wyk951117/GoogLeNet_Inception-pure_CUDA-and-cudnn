@@ -65,25 +65,36 @@ Layer::~Layer()
 	cudaFree(d_weight);
 }
 
-void Layer::Out()
+// display output of data
+void Layer::display_Out()
 {
   float* temp = (float *)malloc(sizeof(float) * O);
 	cudaMemcpy(temp, preact, sizeof(float) * O, cudaMemcpyDeviceToHost);
-  for(int i = 0; i < O; i++){
-      fprintf(stdout, "%d : %f  ", i, temp[i]);
-	}
-	fprintf(stdout,"\n");
-}
 
-void Layer::dOut()
+	for(int c = 0; c < out_channel; c++){
+		fprintf(stdout, "Channel %d:\n", c);
+		for(int w = 0; w < out_size; w++){
+			for(int h = 0; h < out_size; h++){
+				fprintf(stdout, "%f  ", temp[(c * out_size + w) * out_size + h]);
+			}
+			fprintf("\n");
+		}
+	}
+}
+// display gradient of output data
+void Layer::display_dOut()
 {
 	float* temp = (float *)malloc(sizeof(float) * O);
 	cudaMemcpy(temp, d_output, sizeof(float) * O, cudaMemcpyDeviceToHost);
-  for(int i = 0; i < O; i++){
-      fprintf(stdout, "%d : %f  ", i, temp[i]);
+	for(int c = 0; c < out_channel; c++){
+		fprintf(stdout, "Channel %d:\n", c);
+		for(int w = 0; w < out_size; w++){
+			for(int h = 0; h < out_size; h++){
+				fprintf(stdout, "%f  ", temp[(c * out_size + w) * out_size + h]);
+			}
+			fprintf("\n");
+		}
 	}
-	fprintf(stdout,"\n");	
-}
 
 // Send data one row from dataset to the GPU
 void Layer::setOutput(float *data)
@@ -105,6 +116,16 @@ void Layer::bp_clear()
 	cudaMemset(d_weight, 0x00, sizeof(float) * M * N);
 }
 
+// assign random int values to output of layer for test purpose
+void Layer::assign_vals()
+{
+	float* temp = (float *)malloc(sizeof(float) * O);
+	for(int i = 0; i < O; i++){
+		tmep[i] = rand() % 10;
+	}
+
+	cudaMemcpy(output, temp, sizeof(float) * O, cudaMemcpyHostToDevice);
+}
 /**name: step_function
  * function: implement sigmoid step function as activation function
  */
